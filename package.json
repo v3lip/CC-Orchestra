@@ -1,0 +1,22 @@
+{
+  "name": "cc-fleet",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "concurrently -k -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev -w @ccfleet/server",
+    "dev:web": "npm run dev -w @ccfleet/web",
+    "sim": "npm run start -w @ccfleet/sim --",
+    "build": "npm run build -w @ccfleet/web",
+    "start": "npm run start -w @ccfleet/server",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/protocol && tsc -p apps/server && tsc -p apps/sim && tsc -p apps/web"
+  },
+  "devDependencies": {
+    "concurrently": "9.1.2",
+    "typescript": "5.8.3",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@ccfleet/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts"
+  },
+  "dependencies": {
+    "@ccfleet/protocol": "*",
+    "@fastify/cookie": "11.0.2",
+    "@fastify/static": "10.1.6",
+    "@fastify/websocket": "11.0.2",
+    "fastify": "5.12.7",
+    "tsx": "4.19.3",
+    "zod": "3.24.2"
+  },
+  "devDependencies": {
+    "@ccfleet/sim": "*",
+    "@types/node": "22.15.3",
+    "@types/ws": "8.18.1",
+    "ws": "8.22.0"
+  }
+}

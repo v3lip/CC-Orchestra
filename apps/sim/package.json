@@ -1,0 +1,19 @@
+{
+  "name": "@ccfleet/sim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "start": "tsx --env-file-if-exists=../../.env src/cli.ts"
+  },
+  "dependencies": {
+    "@ccfleet/protocol": "*",
+    "tsx": "4.19.3",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "@types/ws": "8.18.1"
+  }
+}

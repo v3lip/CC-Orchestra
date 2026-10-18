@@ -1,0 +1,7 @@
+node_modules
+**/node_modules
+data
+sim-data
+apps/web/dist
+.env
+.git

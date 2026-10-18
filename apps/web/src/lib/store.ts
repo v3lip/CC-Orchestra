@@ -1,0 +1,277 @@
+import { create } from 'zustand';
+import type { BatchView, EventView, GroupView, MapBlock, Targets, TurtleView, UiServerMsg } from '@ccfleet/protocol';
+import { api } from './api';
+
+export interface Toast {
+  id: number;
+  level: 'info' | 'error';
+  text: string;
+}
+
+interface FleetState {
+  live: 'connecting' | 'live' | 'down';
+  turtles: Record<string, TurtleView>;
+  groups: GroupView[];
+  batches: BatchView[];
+  events: EventView[];
+  selection: string[];
+  focusId?: string;
+  activeBatchId?: string;
+  world: string;
+  dimension: string;
+  y: number;
+  followY: boolean;
+  /** Bumped whenever the map cache changes, so the canvas redraws. */
+  mapVersion: number;
+  /** Bumped to ask the map to centre on `centerTarget`. */
+  centerTarget?: { x: number; z: number; n: number };
+  toasts: Toast[];
+
+  select(ids: string[], mode?: 'replace' | 'add' | 'toggle'): void;
+  focus(id: string | undefined, center?: boolean): void;
+  setY(y: number): void;
+  setFollowY(v: boolean): void;
+  setWorld(world: string, dimension: string): void;
+  centerOn(x: number, z: number, y?: number): void;
+  setActiveBatch(id: string | undefined): void;
+  toast(level: Toast['level'], text: string): void;
+  dismissToast(id: number): void;
+}
+
+let toastSeq = 0;
+let centerSeq = 0;
+
+export const useFleet = create<FleetState>((set, get) => ({
+  live: 'connecting',
+  turtles: {},
+  groups: [],
+  batches: [],
+  events: [],
+  selection: [],
+  world: 'main',
+  dimension: 'minecraft:overworld',
+  y: 64,
+  followY: true,
+  mapVersion: 0,
+  toasts: [],
+
+  select(ids, mode = 'replace') {
+    const cur = new Set(get().selection);
+    if (mode === 'replace') {
+      set({ selection: [...new Set(ids)], focusId: ids.length ? ids[ids.length - 1] : get().focusId });
+      return;
+    }
+    for (const id of ids) {
+      if (mode === 'add') cur.add(id);
+      else if (cur.has(id)) cur.delete(id);
+      else cur.add(id);
+    }
+    set({ selection: [...cur], focusId: ids.length && cur.has(ids[ids.length - 1]) ? ids[ids.length - 1] : get().focusId });
+  },
+  focus(id, center = false) {
+    set({ focusId: id });
+    const t = id ? get().turtles[id] : undefined;
+    if (!t) return;
+    if (t.world !== get().world || t.dimension !== get().dimension) get().setWorld(t.world, t.dimension);
+    const pos = t.state?.pose.pos;
+    if (pos && (center || get().followY)) set({ y: pos.y });
+    if (pos && center) get().centerOn(pos.x, pos.z);
+  },
+  setY: (y) => set({ y: Math.max(-64, Math.min(320, Math.round(y))) }),
+  setFollowY: (followY) => set({ followY }),
+  setWorld(world, dimension) {
+    if (world === get().world && dimension === get().dimension) return;
+    mapCache.reset();
+    set({ world, dimension, mapVersion: get().mapVersion + 1 });
+  },
+  centerOn(x, z, y) {
+    set({ centerTarget: { x, z, n: ++centerSeq }, ...(y !== undefined ? { y } : {}) });
+  },
+  setActiveBatch: (activeBatchId) => set({ activeBatchId }),
+  toast(level, text) {
+    const id = ++toastSeq;
+    set({ toasts: [...get().toasts, { id, level, text }].slice(-4) });
+    setTimeout(() => get().dismissToast(id), level === 'error' ? 7000 : 3500);
+  },
+  dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
+}));
+
+// ------------------------------------------------------------------ live updates
+
+function apply(m: UiServerMsg) {
+  const s = useFleet.getState();
+  switch (m.type) {
+    case 'init': {
+      const turtles = Object.fromEntries(m.turtles.map((t) => [t.id, t]));
+      const selection = s.selection.filter((id) => turtles[id]);
+      useFleet.setState({ turtles, groups: m.groups, batches: m.batches, events: m.events, selection });
+      // Default the map to where the turtles are.
+      if (!Object.keys(s.turtles).length && m.turtles.length) {
+        const first = m.turtles.find((t) => t.connection !== 'offline' && t.state?.pose.pos) ?? m.turtles.find((t) => t.state?.pose.pos);
+        if (first) {
+          s.setWorld(first.world, first.dimension);
+          const p = first.state!.pose.pos!;
+          s.centerOn(p.x, p.z, p.y);
+        }
+      }
+      break;
+    }
+    case 'turtle': {
+      const prev = s.turtles[m.turtle.id];
+      useFleet.setState({ turtles: { ...s.turtles, [m.turtle.id]: m.turtle } });
+      const pos = m.turtle.state?.pose.pos;
+      if (s.followY && s.focusId === m.turtle.id && pos && prev?.state?.pose.pos?.y !== pos.y) s.setY(pos.y);
+      break;
+    }
+    case 'turtle_removed': {
+      const { [m.id]: _gone, ...rest } = s.turtles;
+      useFleet.setState({ turtles: rest, selection: s.selection.filter((id) => id !== m.id), focusId: s.focusId === m.id ? undefined : s.focusId });
+      break;
+    }
+    case 'groups':
+      useFleet.setState({ groups: m.groups });
+      break;
+    case 'batch': {
+      const others = s.batches.filter((b) => b.id !== m.batch.id);
+      useFleet.setState({ batches: [m.batch, ...others].sort((a, b) => b.createdAt - a.createdAt).slice(0, 50) });
+      break;
+    }
+    case 'event':
+      useFleet.setState({ events: [m.event, ...s.events].slice(0, 500) });
+      break;
+    case 'map':
+      if (m.world === s.world && m.dimension === s.dimension) {
+        mapCache.put(m.blocks);
+        useFleet.setState({ mapVersion: s.mapVersion + 1 });
+      }
+      break;
+  }
+}
+
+let socket: WebSocket | undefined;
+let retry = 1000;
+let stopped = false;
+
+export function connectLive() {
+  stopped = false;
+  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/ui`;
+  useFleet.setState({ live: 'connecting' });
+  const ws = new WebSocket(url);
+  socket = ws;
+  ws.onopen = () => {
+    retry = 1000;
+    useFleet.setState({ live: 'live' });
+    // The map may have missed deltas while disconnected; refetch what is on screen.
+    mapCache.reset();
+    useFleet.setState({ mapVersion: useFleet.getState().mapVersion + 1 });
+  };
+  ws.onmessage = (e) => apply(JSON.parse(e.data));
+  ws.onclose = () => {
+    if (socket !== ws) return;
+    useFleet.setState({ live: 'down' });
+    if (!stopped) setTimeout(connectLive, retry);
+    retry = Math.min(retry * 2, 15000);
+  };
+}
+
+export function disconnectLive() {
+  stopped = true;
+  socket?.close();
+  socket = undefined;
+}
+
+// ------------------------------------------------------------------ helpers
+
+export function selectionTargets(): Targets {
+  return { turtleIds: useFleet.getState().selection };
+}
+
+/** Run an API call that returns a batch, show it in the results panel, toast errors. */
+export async function runBatch(p: Promise<BatchView>) {
+  try {
+    const b = await p;
+    useFleet.getState().setActiveBatch(b.id);
+    const s = useFleet.getState();
+    if (!s.batches.find((x) => x.id === b.id)) useFleet.setState({ batches: [b, ...s.batches] });
+    return b;
+  } catch (e) {
+    useFleet.getState().toast('error', (e as Error).message);
+    return undefined;
+  }
+}
+
+// ------------------------------------------------------------------ map cache
+
+const CHUNK = 16;
+const BAND = 16;
+
+/**
+ * Client-side cache of observed blocks, indexed by Y level. Data is loaded per
+ * 16x16 chunk column and 16-block Y band as the viewport needs it, then kept up to
+ * date by incremental `map` messages — the server never resends the whole map.
+ */
+class MapCache {
+  byY = new Map<number, Map<string, MapBlock>>();
+  private loaded = new Set<string>();
+  private inflight = new Set<string>();
+  private generation = 0;
+
+  reset() {
+    this.byY.clear();
+    this.loaded.clear();
+    this.inflight.clear();
+    this.generation++;
+  }
+
+  put(blocks: MapBlock[]) {
+    for (const b of blocks) {
+      let layer = this.byY.get(b.y);
+      if (!layer) this.byY.set(b.y, (layer = new Map()));
+      layer.set(`${b.x},${b.z}`, b);
+    }
+  }
+
+  layer(y: number) {
+    return this.byY.get(y);
+  }
+
+  /** Ensure chunks covering [x0,x1]x[z0,z1] are loaded for the band containing y (and y-1). */
+  ensure(world: string, dimension: string, x0: number, x1: number, z0: number, z1: number, y: number, onLoaded: () => void) {
+    const cx0 = Math.floor(x0 / CHUNK);
+    const cx1 = Math.floor(x1 / CHUNK);
+    const cz0 = Math.floor(z0 / CHUNK);
+    const cz1 = Math.floor(z1 / CHUNK);
+    if ((cx1 - cx0 + 1) * (cz1 - cz0 + 1) > 4096) return; // zoomed out too far to load more
+    for (const band of new Set([Math.floor(y / BAND), Math.floor((y - 1) / BAND)])) {
+      let mx0 = Infinity, mx1 = -Infinity, mz0 = Infinity, mz1 = -Infinity;
+      const keys: string[] = [];
+      for (let cx = cx0; cx <= cx1; cx++)
+        for (let cz = cz0; cz <= cz1; cz++) {
+          const k = `${cx},${cz},${band}`;
+          if (this.loaded.has(k) || this.inflight.has(k)) continue;
+          keys.push(k);
+          mx0 = Math.min(mx0, cx);
+          mx1 = Math.max(mx1, cx);
+          mz0 = Math.min(mz0, cz);
+          mz1 = Math.max(mz1, cz);
+        }
+      if (!keys.length) continue;
+      keys.forEach((k) => this.inflight.add(k));
+      const gen = this.generation;
+      api
+        .mapBlocks({ world, dimension, x0: mx0 * CHUNK, x1: mx1 * CHUNK + CHUNK - 1, z0: mz0 * CHUNK, z1: mz1 * CHUNK + CHUNK - 1, y0: band * BAND, y1: band * BAND + BAND - 1 })
+        .then((r) => {
+          if (gen !== this.generation) return;
+          this.put(r.blocks);
+          keys.forEach((k) => {
+            this.inflight.delete(k);
+            this.loaded.add(k);
+          });
+          onLoaded();
+        })
+        .catch(() => keys.forEach((k) => this.inflight.delete(k)));
+    }
+  }
+}
+
+export const mapCache = new MapCache();

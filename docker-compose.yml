@@ -1,0 +1,17 @@
+services:
+  cc-fleet:
+    build: .
+    restart: unless-stopped
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      # Address turtles use to reach the backend (shown in install instructions).
+      PUBLIC_URL: ${PUBLIC_URL:-http://127.0.0.1:8787}
+    volumes:
+      - fleet-data:/data
+    ports:
+      # Bound to localhost only. For a LAN server, change to "<lan-ip>:8787:8787"
+      # and allow exactly that address/port in the CC: Tweaked http rules.
+      - "127.0.0.1:8787:8787"
+
+volumes:
+  fleet-data:
