@@ -37,3 +37,30 @@ describe('ore matching (modded ids)', () => {
     expect(oreMatches('stone', 'minecraft:stone_bricks')).toBe(false);
   });
 });
+
+describe('ore search (/api/map/ores)', () => {
+  it('lists ores seen and still in place, including modded ones; not stone, not mined cells', async () => {
+    const { startServer } = await import('./helpers');
+    const server = await startServer();
+    try {
+      server.fleet.importObservations(
+        'main',
+        'minecraft:overworld',
+        [
+          { x: 1, y: 11, z: 1, name: 'minecraft:diamond_ore' },
+          { x: 1, y: 12, z: 1, name: 'emendatusenigmatica:coal_ore' },
+          { x: 2, y: 11, z: 1, name: 'minecraft:stone' },
+          { x: 3, y: 11, z: 1, name: 'minecraft:iron_ore' },
+        ],
+        'test',
+      );
+      // The iron ore was mined since: its cell is now empty.
+      server.fleet.importObservations('main', 'minecraft:overworld', [{ x: 3, y: 11, z: 1 }], 'test');
+      const ores = server.fleet.findOres('main', 'minecraft:overworld');
+      expect(ores.map((o) => o.block).sort()).toEqual(['emendatusenigmatica:coal_ore', 'minecraft:diamond_ore']);
+      expect(server.fleet.findOres('main', 'minecraft:the_nether')).toEqual([]);
+    } finally {
+      await server.close();
+    }
+  });
+});

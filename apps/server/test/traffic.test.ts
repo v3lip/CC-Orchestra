@@ -10,12 +10,14 @@ import { fill, openWorld, spawnTurtle, startServer, waitFor } from './helpers';
 
 type Server = Awaited<ReturnType<typeof startServer>>;
 let server: Server | undefined;
+const servers: Server[] = [];
 const sims: SimTurtle[] = [];
 
 afterEach(async () => {
   for (const t of sims.splice(0)) t.stop();
   await server?.close();
   server = undefined;
+  for (const s of servers.splice(0)) await s.close();
 });
 
 describe('Traffic (unit)', () => {
@@ -88,6 +90,35 @@ describe('head-on in a narrow corridor', () => {
     expect(a.body.pos).toEqual({ x: 12, y: 100, z: 0 });
     expect(b.body.pos).toEqual({ x: 0, y: 100, z: 0 });
     expect(server.fleet.recentEvents(50).some((e) => e.message.includes('steps aside'))).toBe(true);
+  }, 60000);
+
+  it('meeting head-on, the one giving way takes the other row early; nobody stops nose to nose', async () => {
+    const server = await startServer();
+    servers.push(server);
+    const world = openWorld();
+    const obs = corridor(world, false);
+    // A 2-high stretch in the middle of the 1-high corridor: room to pass.
+    fill(world, { x: 3, y: 101, z: 0 }, { x: 9, y: 101, z: 0 }, null);
+    for (let x = 3; x <= 9; x++) obs.push({ x, y: 101, z: 0 });
+    server.fleet.importObservations('sim', 'minecraft:overworld', obs, 'test');
+    const a = await spawnTurtle(server, world, { x: 0, y: 100, z: 0, heading: 1 }, { opMs: 5, fuel: 500 });
+    const b = await spawnTurtle(server, world, { x: 12, y: 100, z: 0, heading: 3 }, { opMs: 5, fuel: 500 });
+    sims.push(a, b);
+    let clash = false;
+    const watch = setInterval(() => {
+      if (a.body.pos.x === b.body.pos.x && a.body.pos.y === b.body.pos.y && a.body.pos.z === b.body.pos.z) clash = true;
+    }, 2);
+    // (Goals short of each other's start, so neither has to wait for the other to leave it.)
+    server.jobs.goto(a.turtleId!, { x: 11, y: 100, z: 0 });
+    server.jobs.goto(b.turtleId!, { x: 1, y: 100, z: 0 });
+    await waitFor(() => !server.jobs.taskRunning(a.turtleId!) && !server.jobs.taskRunning(b.turtleId!), 40000, 'both go-to tasks to end');
+    clearInterval(watch);
+    const events = server.fleet.recentEvents(100).map((e) => e.message);
+    expect(clash).toBe(false);
+    expect(a.body.pos).toEqual({ x: 11, y: 100, z: 0 });
+    expect(b.body.pos).toEqual({ x: 1, y: 100, z: 0 });
+    expect(events.some((m) => m.includes('takes a parallel path'))).toBe(true);
+    expect(events.filter((m) => m.includes('failed') || m.includes('block each other') || m.includes('steps aside'))).toEqual([]);
   }, 60000);
 
   it('without anywhere to step aside it reports a deadlock instead of hanging', async () => {

@@ -10,6 +10,7 @@ import { ActivityLog } from './components/ActivityLog';
 import { EnrollDialog } from './components/EnrollDialog';
 import { JobsPanel } from './components/JobsPanel';
 import { DepotsPanel } from './components/DepotsPanel';
+import { OresPanel } from './components/OresPanel';
 
 export function App() {
   const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking');
@@ -280,10 +281,11 @@ function RightTabs() {
   const jobs = useFleet((s) => s.jobs);
   const active = Object.values(jobs).filter((j) => j.status === 'running' || j.status === 'pausing').length;
   const attention = Object.values(jobs).some((j) => j.status === 'paused' && j.error);
-  const tabs: { id: 'turtle' | 'jobs' | 'depots'; label: string; alert?: boolean }[] = [
+  const tabs: { id: 'turtle' | 'jobs' | 'depots' | 'ores'; label: string; alert?: boolean }[] = [
     { id: 'turtle', label: 'Turtle' },
-    { id: 'jobs', label: `Jobs${active ? ` · ${active} running` : ''}`, alert: attention },
+    { id: 'jobs', label: `Jobs${active ? ` · ${active}` : ''}`, alert: attention },
     { id: 'depots', label: 'Depots' },
+    { id: 'ores', label: 'Ores' },
   ];
   return (
     <div className="flex shrink-0 border-b border-edge text-xs">
@@ -301,5 +303,6 @@ function RightPanel() {
   const tab = useFleet((s) => s.rightTab);
   if (tab === 'jobs') return <JobsPanel />;
   if (tab === 'depots') return <DepotsPanel />;
+  if (tab === 'ores') return <OresPanel />;
   return <DetailsPanel />;
 }

@@ -1,5 +1,20 @@
 # Progress notes
 
+## Milestone 5, part 2 — head-on passing, grid mine, ore search (2026-10-18)
+
+In-game, the user saw turtles bump into each other when one was heading home and another was walking towards it. Before this, turtles only noticed each other when nose to nose, then waited, detected the deadlock and backed off.
+
+- **Agree who goes around, early:** a turtle checks 5 cells ahead; if a more important turtle (earlier job start) is coming the other way, it takes a parallel path (the other row of a 2-high tunnel, a neighbouring column) or pulls into a side cell before they meet. Activity log: *takes a parallel path to pass …* / *steps aside …*. Fixed along the way: an agent's stored route included cells it had already walked, so "where is it heading" looked at the past.
+- **Grid mine** strategy: parallel tunnels every N blocks across an area, joined at alternate ends (the "Grid" tab in New job).
+- **Ores tab:** every ore seen and not mined, grouped by type and vein, nearest first; click to jump the map there. Server: `GET /api/map/ores`.
+- Tests: head-on in a corridor with a 2-high passing bay (the one giving way takes the other row; no failed moves, no stepping aside; the test fails with the old code); grid mine geometry (tunnels, passages, rock between); ore search (modded ores included, stone and mined cells excluded). Also run on a test instance: grid mine with wall scanning, Ores tab and jump-to-vein.
+
+**Limitations**
+
+- Who gives way is by job start time, not by who has an easier way out.
+- Branch and grid mines can't be split between turtles yet (formations).
+
+
 ## Modded ore names (2026-10-18)
 
 Ore filters were substring matches on the id, so they missed ores named the other way round (Immersive Engineering's `ore_copper`), and a custom filter typed like the in-game name ("Coal Ore") never matched; the custom field also split on spaces. Emendatus Enigmatica ores (`emendatusenigmatica:coal_ore`, …) did already match: the real map shows EE redstone being followed by vein following.

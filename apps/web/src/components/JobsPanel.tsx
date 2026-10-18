@@ -211,5 +211,6 @@ function describe(job: JobView): string {
   const p = job.params as unknown as Record<string, number | string>;
   if (job.strategy === 'branch') return `branch mine ${p.length} long, branches ${p.branchLength} every ${p.spacing}`;
   if (job.strategy === 'quarry') return `quarry ${p.width}×${p.length}, ${p.depth} deep`;
+  if (job.strategy === 'grid') return `grid mine ${p.width}×${p.length}, tunnels every ${p.spacing}`;
   return `tunnel ${p.width}×${p.height}×${p.length}`;
 }

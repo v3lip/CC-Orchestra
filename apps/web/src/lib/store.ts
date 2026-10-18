@@ -28,7 +28,7 @@ interface FleetState {
   toasts: Toast[];
   jobs: Record<string, JobView>;
   depots: Record<string, DepotView>;
-  rightTab: 'turtle' | 'jobs' | 'depots';
+  rightTab: 'turtle' | 'jobs' | 'depots' | 'ores';
   /** Show the chunk grid and which chunks turtles keep loaded. */
   showChunks: boolean;
   setShowChunks(v: boolean): void;

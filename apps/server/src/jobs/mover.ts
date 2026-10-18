@@ -56,6 +56,10 @@ const STATIC_WAIT_MS = 3000;
 /** How long to wait behind a moving turtle before trying another route. */
 const AGENT_WAIT_MS = 30_000;
 const POLL_MS = 200;
+/** How many cells ahead a turtle looks for an oncoming one. */
+const LOOKAHEAD = 5;
+/** Path cost of stepping on a cell an oncoming turtle is about to use. */
+const AVOID_COST = 40;
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function isProtectedName(name: string | null | undefined): boolean {
@@ -120,7 +124,7 @@ export class Mover {
     }
   }
 
-  private navContext(from: Vec3, to: Vec3): NavContext {
+  private navContext(from: Vec3, to: Vec3, avoid?: Set<string>): NavContext {
     const margin = 16;
     const min = { x: Math.min(from.x, to.x) - margin, y: Math.min(from.y, to.y) - 8, z: Math.min(from.z, to.z) - margin };
     const max = { x: Math.max(from.x, to.x) + margin, y: Math.max(from.y, to.y) + 8, z: Math.max(from.z, to.z) + margin };
@@ -149,6 +153,7 @@ export class Mover {
     }
     for (const p of this.o.traffic.reservedBy(this.o.turtleId, this.o.world, this.o.dimension)) extraCost.set(key(p), 12);
     for (const p of this.o.extraBlocked?.() ?? []) blocked.add(key(p));
+    for (const k of avoid ?? []) extraCost.set(k, Math.max(extraCost.get(k) ?? 0, AVOID_COST));
     return { cell: (p) => cells.get(key(p)), blocked, extraCost, canDig: (p, b) => this.canDig(p, b), bounds: { min, max } };
   }
 
@@ -168,6 +173,7 @@ export class Mover {
     if (g?.cell === 'solid' && isProtectedName(g.block)) {
       throw new JobError('protected', `Protected block ${g.block} at ${fmt(goal)} is in the way. Remove it or add an exclusion, then resume.`);
     }
+    const cantGiveWay = new Set<string>();
     for (let attempt = 0; attempt < MAX_REPLANS; attempt++) {
       const here = this.pos();
       if (eq(here, goal)) return;
@@ -180,11 +186,31 @@ export class Mover {
         }
         throw new JobError('no_route', `No known safe route from ${fmt(here)} to ${fmt(goal)}. Drive the turtle closer or clear a path, then resume.`);
       }
-      this.o.traffic.setRoute(this.o.turtleId, path);
-      this.o.onRoute?.([here, ...path]); // with the start cell, so "just crossed into" can be told
+      let route = path;
+      this.o.traffic.setRoute(this.o.turtleId, route);
+      this.o.onRoute?.([here, ...route]); // with the start cell, so "just crossed into" can be told
       let ok = true;
-      for (const next of path) {
-        if (!(await this.stepInto(next))) {
+      for (let i = 0; i < route.length; i++) {
+        // A more important turtle coming the other way: get out of its way before we meet.
+        const way = this.yielding ? undefined : this.o.traffic.oncoming(this.o.turtleId, this.pos(), route.slice(i, i + LOOKAHEAD));
+        if (way && !cantGiveWay.has(way.id)) {
+          const alt = this.passPath(way.id, goal, route.length - i);
+          if (alt) {
+            this.o.log('info', `${this.o.traffic.name(this.o.turtleId)} takes a parallel path to pass ${way.name}`);
+            route = alt;
+            i = -1;
+            this.o.traffic.setRoute(this.o.turtleId, route);
+            this.o.onRoute?.([this.pos(), ...route]);
+            continue;
+          }
+          if (await this.yieldTo(way.id)) {
+            ok = false;
+            break;
+          }
+          // Nowhere to go: carry on; meeting it, the deadlock rules decide.
+          cantGiveWay.add(way.id);
+        }
+        if (!(await this.stepInto(route[i]))) {
           ok = false;
           break;
         }
@@ -192,6 +218,25 @@ export class Mover {
       if (ok) return;
     }
     throw new JobError('no_route', `Gave up reaching ${fmt(goal)} after ${MAX_REPLANS} re-plans.`);
+  }
+
+  /**
+   * A route to `goal` that stays off `other`'s cell and route while they pass each other
+   * (another row or column of the tunnel), if there is one that isn't much longer.
+   */
+  private passPath(other: string, goal: Vec3, remaining: number): Vec3[] | undefined {
+    const here = this.pos();
+    // The stretch between us: where it stands, and its route up to where we stand.
+    const avoid = new Set<string>();
+    const op = this.o.fleet.turtleState(other)?.state?.pose.pos;
+    if (op) avoid.add(key(op));
+    for (const c of this.o.traffic.route(other)) {
+      if (c === key(here)) break;
+      avoid.add(c);
+    }
+    const alt = planPath(this.navContext(here, goal, avoid), here, goal);
+    if (!alt || alt.length > remaining + 8) return undefined;
+    return alt.some((c) => avoid.has(key(c))) ? undefined : alt;
   }
 
   /** Dig one adjacent cell. Returns false if it cannot be cleared (unbreakable). */
@@ -304,12 +349,12 @@ export class Mover {
   }
 
   /** Step aside out of `other`'s way, then give it a moment to pass. */
-  async yieldTo(other: string): Promise<void> {
+  async yieldTo(other: string): Promise<boolean> {
     const me = this.o.turtleId;
     const spot = this.findYieldCell(other);
     if (!spot) {
       this.o.traffic.markNoYield(me);
-      return;
+      return false;
     }
     this.o.log('info', `${this.o.traffic.name(me)} steps aside to ${fmt(spot)} to let ${this.o.traffic.name(other)} pass`);
     this.yielding = true;
@@ -318,7 +363,7 @@ export class Mover {
     } catch (e) {
       if (e instanceof JobError) {
         this.o.traffic.markNoYield(me);
-        return;
+        return false;
       }
       throw e;
     } finally {
@@ -333,9 +378,10 @@ export class Mover {
       const p = this.o.fleet.turtleState(other)?.state?.pose.pos;
       const route = this.o.traffic.routeCells(other);
       if (!this.o.traffic.isAgent(other) || (p && otherStart && !eq(p, otherStart) && !route.has(key(this.pos())))) {
-        if (Date.now() - start > 1000) return;
+        if (Date.now() - start > 1000) return true;
       }
     }
+    return true;
   }
 
   /** Nearest known-free cell (no digging) that is not on `other`'s route. */

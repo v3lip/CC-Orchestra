@@ -38,6 +38,10 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 28. [ ] **Scan the walls:** tick it on a short tunnel. Afterwards the map, at the tunnel's level and one above, shows the walls on both sides as observed blocks (not unknown).
 29. [ ] **Follow veins:** tick **Diamond** (or **Any ore** for a quick test) plus Scan the walls, and tunnel at diamond level (Y 5–12 on 1.16). When it sees a matching ore beside the tunnel, the job note says *following a vein of …*; it mines just the ore blocks and returns to the tunnel. The job card shows ◆ finds, and **◆ Ores** on the map marks ores it has seen but not mined.
 
+30. [ ] **Head-on:** send two turtles towards each other through a 2-high tunnel (e.g. one returning to the depot, one going back to work). The one that started later switches row a few blocks before they meet (activity log: *takes a parallel path to pass …*); neither bumps into the other.
+31. [ ] **Grid mine:** New job → **Grid**, width 16, length 32, tunnel every 3, with Scan the walls. Tunnels are dug every 3 blocks, joined at alternate ends.
+32. [ ] **Ores tab:** after a job with wall scanning, open **Ores**: ores seen but not mined are listed by type and vein, nearest first. Clicking one centres the map on it at its Y level.
+
 ### Chunky turtles (Chunk Controller)
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.

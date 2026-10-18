@@ -574,10 +574,28 @@ export const QuarryParams = z.object({
 });
 export type QuarryParams = z.infer<typeof QuarryParams>;
 
+/**
+ * Grid mine: parallel 1-wide tunnels (`height` high, `length` long along the heading)
+ * across an area `width` blocks wide (to the right), one every `spacing` blocks. Spacing
+ * 3 leaves two solid columns between tunnels, so every block of the area touches a
+ * tunnel (with wall scanning, every ore in it is seen). Mined back and forth: each
+ * tunnel is joined to the next by a short passage at alternating ends.
+ */
+export const GridParams = z.object({
+  origin: Vec3,
+  heading: Heading,
+  width: int().min(1).max(128),
+  length: int().min(1).max(256),
+  height: int().min(1).max(3),
+  spacing: int().min(2).max(8),
+});
+export type GridParams = z.infer<typeof GridParams>;
+
 export const StrategyInput = z.discriminatedUnion('strategy', [
   z.object({ strategy: z.literal('tunnel'), params: TunnelParams }),
   z.object({ strategy: z.literal('branch'), params: BranchParams }),
   z.object({ strategy: z.literal('quarry'), params: QuarryParams }),
+  z.object({ strategy: z.literal('grid'), params: GridParams }),
 ]);
 export type StrategyInput = z.infer<typeof StrategyInput>;
 export type Strategy = StrategyInput['strategy'];
@@ -691,7 +709,7 @@ export interface JobView {
   id: string;
   name: string;
   strategy: Strategy;
-  params: TunnelParams | BranchParams | QuarryParams;
+  params: TunnelParams | BranchParams | QuarryParams | GridParams;
   /** The work volume as plain tunnel sections, in mining order (see segmentsFor). */
   segments: TunnelParams[];
   policy: JobPolicy;
@@ -810,6 +828,7 @@ export function segmentsFor(s: StrategyInput): TunnelParams[] {
     }
     return out;
   }
+  if (s.strategy === 'grid') return gridSegments(s.params);
   const p = s.params;
   const f = HEADING_VECTORS[p.heading];
   const r = HEADING_VECTORS[(p.heading + 1) % 4];
@@ -830,6 +849,24 @@ export function segmentsFor(s: StrategyInput): TunnelParams[] {
     start = d + 1;
   }
   if (start < p.length) out.push({ origin: cell(start, 0), heading: p.heading, width: p.width, height: p.height, length: p.length - start });
+  return out;
+}
+
+function gridSegments(p: GridParams): TunnelParams[] {
+  const f = HEADING_VECTORS[p.heading];
+  const r = HEADING_VECTORS[(p.heading + 1) % 4];
+  const cell = (d: number, w: number) => ({ x: p.origin.x + f.x * d + r.x * w, y: p.origin.y, z: p.origin.z + f.z * d + r.z * w });
+  const back = ((p.heading + 2) % 4) as Heading;
+  const right = ((p.heading + 1) % 4) as Heading;
+  const out: TunnelParams[] = [];
+  for (let k = 0, w = 0; w < p.width; k++, w += p.spacing) {
+    const forward = k % 2 === 0;
+    out.push({ origin: cell(forward ? 0 : p.length - 1, w), heading: forward ? p.heading : back, width: 1, height: p.height, length: p.length });
+    // Passage to the next tunnel, at the end we're at.
+    if (w + p.spacing < p.width && p.spacing > 1) {
+      out.push({ origin: cell(forward ? p.length - 1 : 0, w + 1), heading: right, width: 1, height: p.height, length: p.spacing - 1 });
+    }
+  }
   return out;
 }
 

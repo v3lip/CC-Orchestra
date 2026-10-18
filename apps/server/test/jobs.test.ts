@@ -451,6 +451,33 @@ describe('strategies', () => {
     expect(world.spilled).toBe(0);
   }, 90000);
 
+  it('grid mine: parallel tunnels every 3 blocks, joined at alternate ends, solid between', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world, { fuel: 800 });
+    const job = server.jobs.createJob({
+      name: 'Grid',
+      strategy: 'grid',
+      params: { origin: { x: 2, y: 100, z: -3 }, heading: 1, width: 7, length: 6, height: 2, spacing: 3 },
+      depotId: depot.id,
+      turtleId: t.turtleId!,
+      policy: {},
+    });
+    expect(job.segments.length).toBe(5); // tunnels at z -3, 0, 3 + 2 passages
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    const clear = (x: number, z: number) => [100, 101].every((y) => world.get(x, y, z) === null);
+    for (let x = 2; x <= 7; x++) for (const z of [-3, 0, 3]) expect(clear(x, z), `tunnel ${x},${z}`).toBe(true);
+    // Passages: far end (x=7) between the first two, near end (x=2) between the last two.
+    for (const z of [-2, -1]) expect(clear(7, z), `passage 7,${z}`).toBe(true);
+    for (const z of [1, 2]) expect(clear(2, z), `passage 2,${z}`).toBe(true);
+    // Everything else between the tunnels is still rock.
+    for (const z of [-2, -1]) for (let x = 2; x <= 6; x++) expect(world.get(x, 100, z)?.name, `${x},${z}`).toBe('minecraft:stone');
+    for (const z of [1, 2]) for (let x = 3; x <= 7; x++) expect(world.get(x, 100, z)?.name, `${x},${z}`).toBe('minecraft:stone');
+    expect(world.spilled).toBe(0);
+  }, 90000);
+
   it('quarry: clears a box top-down in layers and leaves the floor below', async () => {
     const { server, world, depot } = await setup();
     const t = await sim(server, world, { fuel: 800 });

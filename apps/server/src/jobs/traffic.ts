@@ -57,6 +57,18 @@ export class Traffic {
     if (a) a.route = cells.slice(0, ROUTE_HORIZON).map(key);
   }
 
+  /** The cells of an agent's route still ahead of it, in order. */
+  route(id: string): string[] {
+    const a = this.agents.get(id);
+    return a ? this.ahead(a) : [];
+  }
+
+  private ahead(a: Agent): string[] {
+    const pos = this.fleet.getTurtle(a.id)?.state?.pose.pos;
+    const i = pos ? a.route.indexOf(key(pos)) : -1;
+    return a.route.slice(i + 1);
+  }
+
   routeCells(id: string): Set<string> {
     return new Set(this.agents.get(id)?.route ?? []);
   }
@@ -138,6 +150,33 @@ export class Traffic {
     if (able.length === 0) return 'stuck';
     const victim = able.reduce((v, a) => (a.priority > v.priority || (a.priority === v.priority && a.id > v.id) ? a : v));
     return victim.id === me ? 'yield' : 'wait';
+  }
+
+  /** Does `a` give way to `b`? The later starter does (ties by id), as in deadlocks. */
+  givesWay(a: string, b: string): boolean {
+    const x = this.agents.get(a);
+    const y = this.agents.get(b);
+    if (!x || !y) return false;
+    return x.priority > y.priority || (x.priority === y.priority && x.id > y.id);
+  }
+
+  /**
+   * A more important turtle coming towards `me` along my next cells: it stands on one of
+   * them and its own route runs back over my next cell or where I stand. `me` should get
+   * out of its way before they meet, instead of both stopping nose to nose.
+   */
+  oncoming(me: string, here: Vec3, next: Vec3[]): Holder | undefined {
+    const a = this.agents.get(me);
+    if (!a || !next.length) return undefined;
+    const ahead = new Set(next.map(key));
+    const back = new Set([key(here), key(next[0])]);
+    for (const o of this.agents.values()) {
+      if (o.id === me || o.world !== a.world || o.dimension !== a.dimension || !this.givesWay(me, o.id)) continue;
+      const pos = this.fleet.getTurtle(o.id)?.state?.pose.pos;
+      if (!pos || !ahead.has(key(pos))) continue;
+      if (this.ahead(o).slice(0, next.length + 1).some((c) => back.has(c))) return { id: o.id, agent: true, name: o.name };
+    }
+    return undefined;
   }
 
   name(id: string): string {

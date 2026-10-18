@@ -11,8 +11,9 @@ const segsOverlap = (a: TunnelParams[], b: TunnelParams[]) => a.some((x) => b.so
 
 const STRATEGIES: { id: Strategy; label: string; help: string }[] = [
   { id: 'tunnel', label: 'Tunnel', help: 'A straight tunnel: width × height × length.' },
-  { id: 'branch', label: 'Branch mine', help: 'A main corridor with side branches every few blocks — the efficient way to find ores.' },
+  { id: 'branch', label: 'Branch', help: 'Branch mine: a main corridor with side branches every few blocks — the efficient way to find ores.' },
   { id: 'quarry', label: 'Quarry', help: 'Clear a box from the top down, layer by layer (also for flattening).' },
+  { id: 'grid', label: 'Grid', help: 'Grid mine: parallel tunnels across an area at one level, a few blocks apart — exposes every block of the area for the fewest blocks dug. Best with wall scanning on.' },
 ];
 
 type Area = { origin: { x: number; y: number; z: number }; heading: Heading; width: number };
@@ -54,6 +55,7 @@ const SIZE_DEFAULTS: Record<Strategy, { width: string; height: string; length: s
   tunnel: { width: '1', height: '2', length: '32' },
   branch: { width: '1', height: '2', length: '32' },
   quarry: { width: '8', height: '2', length: '8' },
+  grid: { width: '16', height: '2', length: '32' },
 };
 function initialForm(turtleId: string, depotId: string) {
   return {
@@ -105,6 +107,13 @@ function buildStrategy(v: Form, origin: { x: number; y: number; z: number }, hea
       params: { origin, heading, width: Math.min(3, n(v.width)), height: Math.min(3, n(v.height)), length: n(v.length), spacing: Math.max(2, n(v.spacing)), branchLength: n(v.branchLength), sides: v.sides },
     };
   }
+  if (v.strategy === 'grid') {
+    if (!ok(v.width, v.height, v.length, v.spacing)) return undefined;
+    return {
+      strategy: 'grid',
+      params: { origin, heading, width: n(v.width), height: Math.min(3, n(v.height)), length: n(v.length), spacing: Math.min(8, Math.max(2, n(v.spacing))) },
+    };
+  }
   if (!ok(v.width, v.length, v.depth)) return undefined;
   return { strategy: 'quarry', params: { origin, heading, width: n(v.width), length: n(v.length), depth: n(v.depth) } };
 }
@@ -130,7 +139,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
 
-  const canSplit = v.strategy !== 'branch';
+  const canSplit = v.strategy === 'tunnel' || v.strategy === 'quarry';
   const split = multi && canSplit && v.layout === 'split';
   const mode = multi && !split ? 'front' : v.originMode;
   const targetIds = multi ? selection : v.turtleId ? [v.turtleId] : [];
@@ -176,7 +185,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
     if (split) {
       const start = mode === 'front' ? turtles[anchorId] && frontOf(turtles[anchorId]) : manualStart();
       const all = start && buildStrategy(v, start.origin, start.heading);
-      if (!all || all.strategy === 'branch') return { drafts, skipped, whole: undefined };
+      if (!all || (all.strategy !== 'tunnel' && all.strategy !== 'quarry')) return { drafts, skipped, whole: undefined };
       const s = splitLanes(all.params as Area & typeof all.params, eligible);
       for (const t of s.left) skipped.push({ name: t.name, why: 'more turtles than columns' });
       for (const l of s.lanes) drafts.push({ turtle: l.turtle, strategy: { strategy: all.strategy, params: l.params } as StrategyInput });
@@ -450,6 +459,28 @@ export function JobForm({ onDone }: { onDone: () => void }) {
             </Field>
           </div>
           <p className="text-[11px] text-dim">"Branch every 3" leaves two solid blocks between branches; every block between them is still exposed to a tunnel face. Width and height max 3.</p>
+        </>
+      )}
+      {v.strategy === 'grid' && (
+        <>
+          <div className="grid grid-cols-4 gap-1">
+            <Field label="Width →">
+              <input value={v.width} onChange={set('width')} className="inp num" />
+            </Field>
+            <Field label="Length">
+              <input value={v.length} onChange={set('length')} className="inp num" />
+            </Field>
+            <Field label="Height">
+              <input value={v.height} onChange={set('height')} className="inp num" />
+            </Field>
+            <Field label="Tunnel every">
+              <input value={v.spacing} onChange={set('spacing')} className="inp num" />
+            </Field>
+          </div>
+          <p className="text-[11px] text-dim">
+            {Number(v.width) >= 1 && Number(v.spacing) >= 2 ? `${Math.floor((Number(v.width) - 1) / Math.max(2, Number(v.spacing))) + 1} tunnels, joined at alternate ends. ` : ''}
+            "Every 3" leaves two solid columns between tunnels, so every block of the area touches a tunnel.
+          </p>
         </>
       )}
       {v.strategy === 'quarry' && (

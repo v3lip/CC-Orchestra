@@ -8,6 +8,7 @@
  * concurrent executors.
  */
 import {
+  isOreBlock,
   type BatchItem,
   type BatchView,
   type BlockObservation,
@@ -1142,6 +1143,21 @@ export class Fleet {
         source: (r.source as string) ?? undefined,
       })),
     };
+  }
+
+  /** Ore blocks seen and still in place (not mined), anywhere in a world. */
+  findOres(world: string, dimension: string, limit = 5000): MapBlock[] {
+    if (this.closed) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT x, y, z, block, cell, observed_at, source FROM map_blocks
+         WHERE world=? AND dimension=? AND cell='solid' AND (block LIKE '%ore%' OR block LIKE '%ancient_debris%') LIMIT ?`,
+      )
+      .all(world, dimension, limit * 4) as Record<string, unknown>[];
+    return rows
+      .filter((r) => isOreBlock(r.block as string))
+      .slice(0, limit)
+      .map((r) => ({ x: r.x as number, y: r.y as number, z: r.z as number, block: r.block as string, cell: 'solid' as const, observedAt: r.observed_at as number, source: (r.source as string) ?? undefined }));
   }
 
   worlds(): { world: string; dimension: string }[] {

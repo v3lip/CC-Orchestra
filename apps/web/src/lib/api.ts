@@ -31,6 +31,8 @@ export const api = {
   me: () => req<{ loggedIn: boolean }>('GET', '/api/auth/me'),
   login: (password: string) => req<{ ok: true }>('POST', '/api/auth/login', { password }),
   logout: () => req<{ ok: true }>('POST', '/api/auth/logout', {}),
+  ores: (world: string, dimension: string) =>
+    req<{ ores: MapBlock[] }>('GET', `/api/map/ores?world=${encodeURIComponent(world)}&dimension=${encodeURIComponent(dimension)}`),
   info: () => req<{ publicUrl: string; worlds: { world: string; dimension: string }[] }>('GET', '/api/info'),
 
   command: (targets: Targets, op: string, args: Record<string, unknown> = {}) => req<BatchView>('POST', '/api/commands', { targets, op, args }),

@@ -148,6 +148,11 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
 
     api.get('/api/events', async (req) => fleet.recentEvents(Math.min(Number((req.query as { limit?: string }).limit ?? 200), 1000)));
 
+    api.get('/api/map/ores', async (req) => {
+      const q = z.object({ world: z.string(), dimension: z.string() }).parse(req.query);
+      return { ores: fleet.findOres(q.world, q.dimension) };
+    });
+
     api.get('/api/map/blocks', async (req) => {
       const q = z
         .object({
