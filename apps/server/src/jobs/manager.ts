@@ -19,7 +19,7 @@ import {
 import type { Db } from '../db';
 import { ApiError, type Fleet } from '../fleet';
 import { newId, now } from '../util';
-import { lanes, manhattan, tunnelBox } from './geometry';
+import { boxesOverlap, lanes, manhattan, tunnelBox } from './geometry';
 import { Interrupt, JobError, JobRunner } from './runner';
 
 export interface JobRec {
@@ -29,8 +29,8 @@ export interface JobRec {
     slice: number;
     /** Where to return to after a depot trip. */
     resume?: { pos: Vec3; heading: Heading };
-    /** A depot trip is in progress ('finish' = final return). */
-    servicing?: 'trip' | 'finish';
+    /** A depot trip is in progress ('finish' = final return, 'back' = unloaded, heading back). */
+    servicing?: 'trip' | 'finish' | 'back';
   };
 }
 
@@ -156,9 +156,13 @@ export class JobManager {
     this.fleet.broadcast({ type: 'depot_removed', id });
   }
 
-  /** Serialise dock use. A lock held by an offline turtle stays: it may still be sitting there. */
-  async acquireDock(depotId: string, turtleId: string, stillWanted: () => boolean): Promise<void> {
-    for (let waited = 0; ; waited += 2000) {
+  /**
+   * Serialise use of a depot's dock and its approach. Waits as long as needed (the job
+   * shows as 'waiting'). A lock held by an offline turtle stays: it may still be in the way.
+   */
+  async acquireDock(depotId: string, turtleId: string, stillWanted: () => boolean, onWait?: (holderName: string) => void): Promise<void> {
+    let announced: string | undefined;
+    for (;;) {
       const holder = this.dockLocks.get(depotId);
       if (!holder || holder === turtleId) {
         this.dockLocks.set(depotId, turtleId);
@@ -166,9 +170,19 @@ export class JobManager {
         return;
       }
       if (!stillWanted()) throw new Interrupt('stopped while waiting for the dock');
-      if (waited > 120_000) throw new JobError('dock_busy', 'Another turtle has held the dock for over 2 minutes (it may be offline there). Check the dock, then resume.');
-      await new Promise((r) => setTimeout(r, 2000));
+      const t = this.fleet.getTurtle(holder);
+      const label = `${t?.name ?? holder}${t && t.connection === 'offline' ? ', offline — it may still be in the way' : ''}`;
+      if (label !== announced) {
+        announced = label;
+        onWait?.(label);
+      }
+      await new Promise((r) => setTimeout(r, 500));
     }
+  }
+
+  /** Does another unfinished job use this depot? */
+  depotShared(depotId: string, exceptJobId: string): boolean {
+    return [...this.jobs.values()].some((j) => j.view.id !== exceptJobId && j.view.depotId === depotId && ACTIVE.has(j.view.status));
   }
 
   releaseDock(depotId: string, turtleId: string): void {
@@ -238,6 +252,12 @@ export class JobManager {
     const turtle = this.fleet.getTurtle(j.turtleId);
     if (!turtle) throw new ApiError(400, 'unknown turtle');
     if (this.activeJobFor(j.turtleId)) throw new ApiError(409, `${turtle.name} already has an unfinished job`);
+    // Two jobs digging the same cells would fight over them (and their turtles would collide).
+    const box = tunnelBox(j.params);
+    for (const o of this.jobs.values()) {
+      if (!ACTIVE.has(o.view.status) || o.view.world !== depot.world || o.view.dimension !== depot.dimension) continue;
+      if (boxesOverlap(box, tunnelBox(o.view.params))) throw new ApiError(409, `This tunnel overlaps job "${o.view.name}". Move it or finish/cancel that job first.`);
+    }
     const { estimate } = this.estimate(input);
     const t = now();
     const rec: JobRec = {
@@ -279,6 +299,7 @@ export class JobManager {
     if (this.runners.has(id)) throw new ApiError(409, 'job is still stopping; try again in a moment');
     job.view.status = 'running';
     job.view.pauseReason = undefined;
+    job.view.note = undefined;
     job.view.error = undefined;
     job.view.startedAt ??= now();
     this.save(job);

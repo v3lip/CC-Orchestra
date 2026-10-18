@@ -142,7 +142,7 @@ export function MapView() {
       drawTunnel(ctx, j.params, toSx, toSy, s, y, j.progress.unitsDone, false);
       if (j.route?.length) drawRoute(ctx, j, toSx, toSy, y);
     }
-    if (jobDraft) drawTunnel(ctx, jobDraft, toSx, toSy, s, y, 0, true);
+    for (const d of jobDraft ?? []) drawTunnel(ctx, d, toSx, toSy, s, y, 0, true);
 
     // Turtles.
     const sel = new Set(selection);

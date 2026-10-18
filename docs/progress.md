@@ -1,5 +1,16 @@
 # Progress notes
 
+## Milestone 4, part 1 — several turtles, one depot (2026-10-18)
+
+Prompted by in-game use: Milestone 3 worked for one turtle, but multi-selecting turtles for jobs was clunky.
+
+- Job form: with several turtles selected, it creates one tunnel per turtle, each starting in front of its own turtle in its facing, all the same size. A list shows each origin; turtles without a known pose, or that already have a job, are skipped with the reason. Overlaps (between the new tunnels, or with unfinished jobs) are flagged and block creation. One button creates and starts all. Single-turtle mode defaults to "start in front of the turtle", so there are no coordinates to type.
+- Server: refuses overlapping job volumes. Shared-depot queue: the dock is held from leaving the tunnel until back in it, waiting is visible, there is no 2-minute timeout, and finished turtles park in their own tunnel when others still need the dock. A job paused mid-trip resumes with the trip back rather than another unload.
+- Robustness: when a move is blocked by something the map doesn't know yet, the runner inspects it instead of waiting forever. This was found with turtles starting right against rock. The simulated agent now inspects after a blocked move and on connect, like the Lua agent.
+- Tests: 47. New: overlap rejection, and two turtles taking turns at one dock with mid-job trips (no shared cell, nothing spilled, lock freed at the end). Checked by hand: three simulated turtles, one form, three parallel tunnels, queueing at the dock and completing.
+
+Still Milestone 4: cell/edge reservations so turtles can share corridors at the same time (today the depot approach is one-at-a-time and the rest relies on re-planning around turtles), dock waiting positions, splitting one big volume into lanes, and group-level job controls.
+
 ## Milestone 3 — tunnel job, automatic return, verified unloading, resume ✅ (2026-10-18; in-game check pending)
 
 **Implemented**

@@ -13,6 +13,10 @@ function frame(h: Heading) {
   return { f: HEADING_VECTORS[h], r: HEADING_VECTORS[(h + 1) % 4] };
 }
 
+export function boxesOverlap(a: Box, b: Box): boolean {
+  return a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y && b.min.y <= a.max.y && a.min.z <= b.max.z && b.min.z <= a.max.z;
+}
+
 /** Cell at slice d, column w (to the right), row h (up). */
 export function tunnelCell(p: TunnelParams, d: number, w: number, h: number): Vec3 {
   const { f, r } = frame(p.heading as Heading);

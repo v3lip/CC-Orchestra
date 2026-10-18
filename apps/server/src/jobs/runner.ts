@@ -65,7 +65,8 @@ export class JobRunner {
     try {
       this.ensureReady();
       this.mgr.setPhase(this.job, 'traveling');
-      if (this.cp.servicing) await this.service(this.cp.servicing === 'finish');
+      if (this.cp.servicing === 'back') await this.returnToWork();
+      else if (this.cp.servicing) await this.service(this.cp.servicing === 'finish');
       while (this.cp.slice < this.v.params.length) {
         this.mgr.setPhase(this.job, 'mining');
         await this.mineSlice(this.cp.slice);
@@ -80,7 +81,9 @@ export class JobRunner {
       else if (e instanceof JobError) this.mgr.failed(this.job, e.code, e.message);
       else this.mgr.failed(this.job, 'internal', (e as Error).message ?? String(e));
     } finally {
-      this.mgr.releaseDock(this.v.depotId, this.v.turtleId);
+      // Paused mid-trip, the turtle may be on the dock or in the shared approach:
+      // keep the dock until it is back in its own tunnel (resuming finishes the trip).
+      if (!this.cp.servicing) this.mgr.releaseDock(this.v.depotId, this.v.turtleId);
     }
   }
 
@@ -277,9 +280,14 @@ export class JobRunner {
       }
       if (r.code === 'out_of_fuel') throw new JobError('out_of_fuel', 'The turtle ran out of fuel. Add fuel to it, then resume.');
       if (r.code !== 'obstructed') throw new JobError(r.code ?? 'move_failed', `${moveOp} failed: ${r.reason}`);
-      // Obstructed: the agent inspected that direction, so the map now says why.
+      // Obstructed: find out by what. Agents usually inspect after a blocked move; if the
+      // map still doesn't know, ask explicitly rather than guessing.
       const occupied = this.fleet.turtlePositions(this.v.world, this.v.dimension, this.v.turtleId).some((p) => eq(p, next));
-      const after = this.known(next);
+      let after = this.known(next);
+      if (!after && !occupied) {
+        await this.step(dy > 0 ? 'inspectUp' : dy < 0 ? 'inspectDown' : 'inspect');
+        after = this.known(next);
+      }
       if (occupied || !after || after.cell !== 'solid') {
         // Another turtle or an entity: wait a little, then try another route.
         if (i >= 4) return false;
@@ -357,7 +365,7 @@ export class JobRunner {
    * is about to enter (resume there afterwards).
    */
   private async serviceIfNeeded(_next?: Vec3): Promise<void> {
-    if (this.cp.servicing || this.v.phase === 'returning' || this.v.phase === 'unloading' || this.v.phase === 'refueling') return;
+    if (this.cp.servicing) return;
     let st = this.turtle();
     const reason = this.freeSlots(st) <= this.v.policy.minFreeSlots ? 'inventory' : undefined;
     let fuelLow = false;
@@ -374,37 +382,63 @@ export class JobRunner {
     await this.service(false);
   }
 
+  /**
+   * Depot trip. The dock and the way to it are shared, so the turtle takes the dock
+   * before leaving its tunnel and keeps it until it is back inside: one turtle on the
+   * approach at a time, and nobody meets head-on there. Others wait in their tunnels.
+   */
   private async service(final: boolean): Promise<void> {
     if (!this.cp.resume && !final) this.cp.resume = { pos: this.pos(), heading: this.heading() };
     this.cp.servicing = final ? 'finish' : 'trip';
     this.mgr.save(this.job);
 
     const depot = this.depot;
+    await this.mgr.acquireDock(depot.id, this.v.turtleId, () => this.v.status === 'running', (holder) => {
+      this.v.note = `waiting for the dock (in use by ${holder})`;
+      this.mgr.setPhase(this.job, 'waiting');
+      this.mgr.broadcast(this.job);
+    });
+    this.v.note = undefined;
     this.mgr.setPhase(this.job, 'returning');
     await this.moveTo(depot.dock);
-    await this.mgr.acquireDock(depot.id, this.v.turtleId, () => this.v.status === 'running');
     await this.face(depot.dockHeading as Heading);
 
     this.mgr.setPhase(this.job, 'unloading');
     await this.unload();
     this.mgr.setPhase(this.job, 'refueling');
     await this.refuel(final);
-    this.mgr.releaseDock(depot.id, this.v.turtleId);
-
     this.v.progress.trips++;
-    this.cp.servicing = undefined;
-    this.mgr.save(this.job);
+
     if (final) {
+      // Don't stay parked on a dock other jobs still need: wait in our own tunnel.
+      if (this.mgr.depotShared(depot.id, this.v.id)) {
+        this.mgr.setPhase(this.job, 'traveling');
+        await this.moveTo(this.v.params.origin);
+      }
+      this.cp.servicing = undefined;
+      this.mgr.save(this.job);
+      this.mgr.releaseDock(depot.id, this.v.turtleId);
       this.mgr.setPhase(this.job, 'done');
       return;
     }
+    this.cp.servicing = 'back';
+    this.mgr.save(this.job);
+    await this.returnToWork();
+  }
+
+  /** Second half of a trip: back to the saved position, then free the dock. */
+  private async returnToWork(): Promise<void> {
+    const depot = this.depot;
+    await this.mgr.acquireDock(depot.id, this.v.turtleId, () => this.v.status === 'running');
     if (this.cp.resume) {
       this.mgr.setPhase(this.job, 'traveling');
       await this.moveTo(this.cp.resume.pos);
       await this.face(this.cp.resume.heading as Heading);
       this.cp.resume = undefined;
-      this.mgr.save(this.job);
     }
+    this.cp.servicing = undefined;
+    this.mgr.save(this.job);
+    this.mgr.releaseDock(depot.id, this.v.turtleId);
     this.mgr.setPhase(this.job, 'mining');
   }
 

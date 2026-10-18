@@ -305,6 +305,50 @@ describe('tunnel job (real Lua agent)', () => {
   });
 });
 
+describe('several turtles, one depot', () => {
+  it('rejects a tunnel that overlaps an unfinished job', async () => {
+    const { server, world, depot } = await setup();
+    const a = await sim(server, world);
+    const b = await spawnTurtle(server, world, { x: 1, y: 100, z: 2, heading: 1 }, { opMs: 4, fuel: 500 });
+    sims.push(b);
+    server.jobs.createJob(tunnel(a.turtleId!, depot.id, { width: 3, length: 4 }));
+    expect(() => server.jobs.createJob({ ...tunnel(b.turtleId!, depot.id), params: { origin: { x: 3, y: 100, z: 2 }, heading: 1, width: 1, height: 2, length: 4 } })).toThrow(/overlaps job/);
+  });
+
+  it('two turtles take turns at the dock and both finish; nothing collides or spills', async () => {
+    const { server, world, depot } = await setup({ chestSize: 54 });
+    // Junk forces both to make mid-job trips, so they compete for the dock.
+    const junk = (n: number) => slots(Object.fromEntries(Array.from({ length: n }, (_, i) => [i + 1, { name: `minecraft:junk_${i}`, count: 64 }])));
+    const a = await spawnTurtle(server, world, { x: 1, y: 100, z: 0, heading: 1 }, { opMs: 4, fuel: 800, slots: junk(13) });
+    const b = await spawnTurtle(server, world, { x: 1, y: 100, z: 2, heading: 1 }, { opMs: 4, fuel: 800, slots: junk(13) });
+    sims.push(a, b);
+    const ja = server.jobs.createJob({ ...tunnel(a.turtleId!, depot.id, { length: 10 }), name: 'A' });
+    const jb = server.jobs.createJob({ ...tunnel(b.turtleId!, depot.id), name: 'B', params: { origin: { x: 2, y: 100, z: 2 }, heading: 1, width: 1, height: 2, length: 10 } });
+    const sawWaiting = { v: false };
+    const watch = setInterval(() => {
+      for (const id of [ja.id, jb.id]) if (server.jobs.getJob(id)?.phase === 'waiting') sawWaiting.v = true;
+      // Never both on the dock or the same cell.
+      expect(a.body.pos).not.toEqual(b.body.pos);
+    }, 5);
+    server.jobs.start(ja.id);
+    server.jobs.start(jb.id);
+    const [da, db] = await Promise.all([finish(server, ja.id, 60000), finish(server, jb.id, 60000)]);
+    clearInterval(watch);
+    expect(da.error).toBeUndefined();
+    expect(db.error).toBeUndefined();
+    expect([da.status, db.status]).toEqual(['completed', 'completed']);
+    expect(sawWaiting.v).toBe(true);
+    expect(chestItems(world)).toBe(2 * (13 * 64 + 20));
+    expect(world.spilled).toBe(0);
+    for (let d = 0; d < 10; d++) for (const z of [0, 2]) for (const y of [100, 101]) expect(world.get(2 + d, y, z)).toBeNull();
+    // Whoever finished first parked in its own tunnel, not on the dock.
+    const dock = { x: 0, y: 100, z: 0 };
+    const onDock = [a, b].filter((t) => t.body.pos.x === dock.x && t.body.pos.y === dock.y && t.body.pos.z === dock.z);
+    expect(onDock.length).toBeLessThanOrEqual(1);
+    expect(server.jobs.listDepots()[0].lockedBy).toBeUndefined();
+  }, 90_000);
+});
+
 describe('agent version gate', () => {
   it('jobs need agent 0.3.0+ (verified unloading, dig protection)', async () => {
     const { agentSupportsJobs } = await import('../src/jobs/runner');

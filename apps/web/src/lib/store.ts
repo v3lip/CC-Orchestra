@@ -30,9 +30,9 @@ interface FleetState {
   depots: Record<string, DepotView>;
   rightTab: 'turtle' | 'jobs' | 'depots';
   /** Tunnel being drafted in the job form, previewed on the map. */
-  jobDraft?: TunnelParams;
+  jobDraft?: TunnelParams[];
   setRightTab(t: FleetState['rightTab']): void;
-  setJobDraft(p: TunnelParams | undefined): void;
+  setJobDraft(p: TunnelParams[] | undefined): void;
 
   select(ids: string[], mode?: 'replace' | 'add' | 'toggle'): void;
   focus(id: string | undefined, center?: boolean): void;

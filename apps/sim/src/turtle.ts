@@ -344,6 +344,8 @@ export class SimTurtle {
         clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = setInterval(() => this.send({ type: 'hb', seq: ++this.hbSeq, fuel: this.body.fuel }), msg.heartbeatMs);
         this.sendSnapshot();
+        // Like the Lua agent: report the surroundings once on connect.
+        if (!this.busy && this.mem.pose.position === 'known') void this.scan(this.generation, ['front', 'up', 'down']).catch(() => {});
         break;
       case 'denied':
         this.log(`server denied: ${msg.reason}`);
@@ -463,7 +465,13 @@ export class SimTurtle {
       this.persist();
       await this.physical(gen);
       const moved = physics.move(this.world, b, op as physics.MoveOp);
-      if (!moved.ok) return this.clearJournal({ ok: false, code: classifyReason(moved.reason), reason: moved.reason });
+      if (!moved.ok) {
+        const code = classifyReason(moved.reason);
+        this.clearJournal(undefined);
+        // Like the Lua agent: look at what blocked us so the map knows.
+        if (code === 'obstructed' && op !== 'back') await this.scan(gen, [op === 'up' ? 'up' : op === 'down' ? 'down' : 'front']);
+        return { ok: false, code, reason: moved.reason };
+      }
       if (this.faults.crashAfterPhysicalMove?.(op)) {
         throw new Crash();
       }

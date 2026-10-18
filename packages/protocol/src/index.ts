@@ -555,7 +555,7 @@ export const JobInput = z.object({
 export type JobInput = z.input<typeof JobInput>;
 
 export type JobStatus = 'ready' | 'running' | 'pausing' | 'paused' | 'completed' | 'cancelled';
-export type JobPhase = 'idle' | 'traveling' | 'mining' | 'returning' | 'unloading' | 'refueling' | 'done';
+export type JobPhase = 'idle' | 'traveling' | 'mining' | 'waiting' | 'returning' | 'unloading' | 'refueling' | 'done';
 
 export interface JobEstimate {
   moves: number;
@@ -581,6 +581,8 @@ export interface JobView {
   status: JobStatus;
   phase: JobPhase;
   pauseReason?: string;
+  /** Live detail for the operator, e.g. what the turtle is waiting for. */
+  note?: string;
   error?: { code: string; message: string; at: number };
   progress: { unitsDone: number; unitsTotal: number; cellsCleared: number; cellsSkipped: number; trips: number; itemsUnloaded: number };
   estimate: JobEstimate;
