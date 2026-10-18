@@ -6,7 +6,7 @@ Self-hosted fleet management for [CC: Tweaked](https://tweaked.cc/) mining turtl
 
 ## Features
 
-- **Live map** of everything the turtles have seen, per Y level, with a chunk overlay (which chunks Chunk Controllers keep loaded) and an **◆ ore overlay**.
+- **Live map** of everything the turtles have seen, per Y level, with a chunk overlay (which chunks Chunk Controllers keep loaded) and an **◆ ore overlay**, plus a **3D view** with x-ray and a Y cut-off to look into tunnels.
 - **Manual control** of one or many turtles (W/S/A/D/R/F, dig, inspect, refuel), with an emergency stop.
 - **Mining jobs:** tunnel, branch mine, grid mine and quarry. Turtles return to a depot to unload and refuel, then continue where they stopped; jobs pause safely and can be resumed.
 - **Finding ores:** scan every block around the work area so the map shows what's there, and follow veins of chosen ores (any mod's ores; "Any ore", Diamond, Coal, custom ids) out of the tunnel and back.
@@ -19,6 +19,8 @@ Self-hosted fleet management for [CC: Tweaked](https://tweaked.cc/) mining turtl
 | <img src="docs/screenshots/job-form.png" width="320" alt="Job form"> | <img src="docs/screenshots/turtle-details.png" width="320" alt="Turtle details"> |
 
 ![Ores tab: ores seen but not mined, grouped into veins; clicking one centres the map on it](docs/screenshots/ores.png)
+
+![3D view: a quarry dug by three turtles, its scanned walls and the ores in them](docs/screenshots/3d.png)
 
 > **Status: Milestone 5 in progress.** In-game so far: pairing, telemetry, manual control, tunnel jobs with unloading, and chunk loading with Chunk Controllers. Also confirmed in-game: multi-turtle traffic, waiting spots, campaigns, branch mine and quarry jobs, wall scanning and ore-vein following. New and tested **outside Minecraft**: giving way early when turtles meet head-on, grid mine jobs, the Ores tab. Verify with [docs/in-game-checklist.md](docs/in-game-checklist.md). See [docs/progress.md](docs/progress.md).
 
@@ -110,4 +112,4 @@ install ABCD-EFGH
 3. ✅ One reliable tunnel job, automatic return, unloading and resume (in-game check pending)
 4. ✅ Multi-turtle scheduling, groups, depot queues, collision handling (in-game check pending)
 5. More strategies, formations, persistent 2D mapping (in progress: branch mine, grid mine, quarry, wall scanning, ore-vein following and ore search done; formations next)
-6. 3D view and optional mapping integrations
+6. 3D view and optional mapping integrations (in progress: 3D view done)

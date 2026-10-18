@@ -77,6 +77,10 @@ Every strategy is turned into an ordered list of **sections** (`segmentsFor`): p
 
 Tunnels and quarries can also be **shared** between turtles: split into side-by-side lanes (campaign), one per turtle. (Branch and grid mines are one turtle each for now.)
 
+### 3D view
+
+`MapView3D` (lazy-loaded with three.js) draws the shared map cache in a box around a centre (±40 across, 28 below, 12 above): one `InstancedMesh` each for ordinary blocks, ores and fluids, rebuilt when map data, the centre, the Y cut or x-ray changes; blocks with a solid neighbour on all six sides are skipped. Overlays (turtles, job areas, routes, depots) are rebuilt from the store; name tags are HTML elements positioned each frame. Picking uses the instanced meshes (blocks) and the turtle bodies.
+
 ### Ore search
 
 `GET /api/map/ores?world&dimension` lists ore blocks seen and still in place (map cell solid, id matching `isOreBlock`). The dashboard's **Ores** tab groups them by block and into veins (face-touching blocks of the same id), sorts by distance from the focused turtle (else the depot), and centres the map on a vein when clicked.

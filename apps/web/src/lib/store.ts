@@ -35,6 +35,9 @@ interface FleetState {
   /** Mark ores seen near the current Y level. */
   showOres: boolean;
   setShowOres(v: boolean): void;
+  /** 2D slice map or 3D view. */
+  mapMode: '2d' | '3d';
+  setMapMode(m: '2d' | '3d'): void;
   /** Chunks the operator marked as force-loaded (FTB Chunks etc.). */
   forcedChunks: ForcedChunk[];
   /** Map clicks toggle "force-loaded" on chunks instead of selecting turtles. */
@@ -80,6 +83,8 @@ export const useFleet = create<FleetState>((set, get) => ({
   rightTab: 'turtle',
   showOres: true,
   setShowOres: (showOres) => set({ showOres }),
+  mapMode: '2d',
+  setMapMode: (mapMode) => set({ mapMode }),
   showChunks: true,
   setShowChunks: (showChunks) => set({ showChunks, ...(showChunks ? {} : { markChunks: false }) }),
   forcedChunks: [],
@@ -299,13 +304,24 @@ class MapCache {
 
   /** Ensure chunks covering [x0,x1]x[z0,z1] are loaded for the band containing y (and y-1). */
   ensure(world: string, dimension: string, x0: number, x1: number, z0: number, z1: number, y: number, onLoaded: () => void) {
+    // The current level, the floor hint below it, and ±8 levels for the ore overlay.
+    this.load(world, dimension, x0, x1, z0, z1, new Set([Math.floor(y / BAND), Math.floor((y - 8) / BAND), Math.floor((y + 8) / BAND)]), onLoaded);
+  }
+
+  /** Ensure everything in the box [x0,x1]x[y0,y1]x[z0,z1] is loaded (3D view). */
+  ensureBox(world: string, dimension: string, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, onLoaded: () => void) {
+    const bands = new Set<number>();
+    for (let b = Math.floor(y0 / BAND); b <= Math.floor(y1 / BAND); b++) bands.add(b);
+    this.load(world, dimension, x0, x1, z0, z1, bands, onLoaded);
+  }
+
+  private load(world: string, dimension: string, x0: number, x1: number, z0: number, z1: number, bands: Set<number>, onLoaded: () => void) {
     const cx0 = Math.floor(x0 / CHUNK);
     const cx1 = Math.floor(x1 / CHUNK);
     const cz0 = Math.floor(z0 / CHUNK);
     const cz1 = Math.floor(z1 / CHUNK);
     if ((cx1 - cx0 + 1) * (cz1 - cz0 + 1) > 4096) return; // zoomed out too far to load more
-    // The current level, the floor hint below it, and ±8 levels for the ore overlay.
-    for (const band of new Set([Math.floor(y / BAND), Math.floor((y - 8) / BAND), Math.floor((y + 8) / BAND)])) {
+    for (const band of bands) {
       let mx0 = Infinity, mx1 = -Infinity, mz0 = Infinity, mz1 = -Infinity;
       const keys: string[] = [];
       for (let cx = cx0; cx <= cx1; cx++)

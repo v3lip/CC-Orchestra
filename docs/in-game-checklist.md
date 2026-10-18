@@ -42,6 +42,12 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 31. [ ] **Grid mine:** New job → **Grid**, width 16, length 32, tunnel every 3, with Scan the walls. Tunnels are dug every 3 blocks, joined at alternate ends.
 32. [ ] **Ores tab:** after a job with wall scanning, open **Ores**: ores seen but not mined are listed by type and vein, nearest first. Clicking one centres the map on it at its Y level.
 
+### Milestone 6: 3D view
+
+33. [ ] Click **3D** (bottom right of the map). Tunnels, walls the turtles scanned and the turtles themselves appear in 3D around the focused turtle; drag to orbit, right-drag to pan, wheel to zoom.
+34. [ ] **X-ray on:** ordinary blocks fade, ores stay bright. **Cut above Y:** move the Y slider to a tunnel's level to look down into it.
+35. [ ] Click a turtle in 3D: it becomes selected (fleet list and details panel follow). Hover a block: its name and coordinates show.
+
 ### Chunky turtles (Chunk Controller)
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.

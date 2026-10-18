@@ -1,5 +1,18 @@
 # Progress notes
 
+## Milestone 6, part 1 — 3D view (2026-10-18)
+
+- **2D | 3D switch** at the bottom right of the map. The 3D view (three.js, loaded only when opened: the main bundle is unchanged) shows what turtles have seen in an 80×80 area around the focused turtle, from 28 blocks below to 12 above it: blocks as cubes in the map colours (blocks enclosed on all sides are skipped), ores lit up, water and lava see-through, turtles in their status colour with a nose for the heading and a name tag, job areas as outlines (running ones bright), routes in yellow, the depot dock and waiting spots in green, and the job being drafted in amber.
+- **X-ray** fades ordinary blocks so ores and tunnels stand out. **Cut above Y** hides everything above the Y slider, to look down into tunnels. **Re-centre** goes back to the focused turtle; selecting another turtle far away, or "show on map" in the Ores tab, moves the 3D area too.
+- Mouse: left-drag orbit, right-drag pan, wheel zoom; click a turtle to select it (shift to add); hover a block to see its name and coordinates; double-click a block to orbit around it.
+- Data comes from the same map cache as the 2D map (loaded by chunk and 16-high bands), so live updates from turtles appear in both.
+- Checked on a test instance with three turtles sharing a quarry with wall scanning.
+
+**Limitations**
+
+- Only blocks turtles have seen exist; everything else is empty space, not "unknown".
+- One 80×80 area at a time (moves with the focused turtle).
+
 ## Milestone 5, part 2 — head-on passing, grid mine, ore search (2026-10-18)
 
 In-game, the user saw turtles bump into each other when one was heading home and another was walking towards it. Before this, turtles only noticed each other when nose to nose, then waited, detected the deadlock and backed off.

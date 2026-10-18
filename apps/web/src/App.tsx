@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { api, setUnauthorizedHandler } from './lib/api';
 import { connectLive, disconnectLive, runBatch, useFleet } from './lib/store';
 import { MapView } from './components/MapView';
@@ -121,7 +121,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1">
             <div className="relative min-w-0 flex-1">
-              <MapView />
+              <MapArea />
             </div>
             <YSlider />
           </div>
@@ -296,6 +296,32 @@ function RightTabs() {
         </button>
       ))}
     </div>
+  );
+}
+
+const MapView3D = lazy(() => import('./components/MapView3D'));
+
+/** The 2D slice map or the 3D view, with the switch between them. */
+function MapArea() {
+  const mode = useFleet((s) => s.mapMode);
+  const setMode = useFleet((s) => s.setMapMode);
+  return (
+    <>
+      {mode === '3d' ? (
+        <Suspense fallback={<div className="absolute inset-0 grid place-items-center text-xs text-dim">Loading 3D view…</div>}>
+          <MapView3D />
+        </Suspense>
+      ) : (
+        <MapView />
+      )}
+      <div className="absolute bottom-3 right-3 z-10 flex overflow-hidden rounded border border-edge text-[11px]">
+        {(['2d', '3d'] as const).map((m) => (
+          <button key={m} onClick={() => setMode(m)} className={`px-2.5 py-1 font-semibold ${mode === m ? 'bg-cyan-700 text-white' : 'bg-black/60 text-dim hover:text-ink'}`}>
+            {m.toUpperCase()}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
