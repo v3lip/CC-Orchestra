@@ -35,7 +35,8 @@ import {
   stepFor,
   turned,
 } from '@ccfleet/protocol';
-import { SimWorld, type TurtleBody, type SimItem } from './world';
+import { SimWorld, type TurtleBody } from './world';
+import * as physics from './physics';
 
 export const SIM_AGENT_VERSION = 'sim-0.1.0';
 
@@ -453,18 +454,13 @@ export class SimTurtle {
     if (MOVE_OPS.has(op)) {
       if (b.fuel !== 'unlimited' && b.fuel <= 0) return { ok: false, code: 'out_of_fuel', reason: 'Out of fuel' };
       const pose = this.mem.pose;
-      const step = stepFor(op, b.heading)!; // physics uses the true heading
       const beliefStep = pose.heading !== undefined ? stepFor(op, pose.heading as Heading) : undefined;
       const believedTo = pose.pos && beliefStep ? addVec(pose.pos, beliefStep) : undefined;
       this.mem.journal = { commandId, op, from: pose.pos ?? b.pos, to: believedTo, fuelBefore: b.fuel };
       this.persist();
       await this.physical(gen);
-      const to = addVec(b.pos, step);
-      if (to.y > 255) return this.clearJournal({ ok: false, code: 'failed', reason: 'Too high to move' });
-      if (to.y < 0) return this.clearJournal({ ok: false, code: 'failed', reason: 'Too low to move' });
-      if (!this.world.passable(to)) return this.clearJournal({ ok: false, code: 'obstructed', reason: 'Movement obstructed' });
-      this.world.moveOccupant(b, to);
-      if (b.fuel !== 'unlimited') b.fuel -= 1;
+      const moved = physics.move(this.world, b, op as physics.MoveOp);
+      if (!moved.ok) return this.clearJournal({ ok: false, code: classifyReason(moved.reason), reason: moved.reason });
       if (this.faults.crashAfterPhysicalMove?.(op)) {
         throw new Crash();
       }
@@ -485,7 +481,7 @@ export class SimTurtle {
       this.mem.journal = { commandId, op, from: pose.pos ?? b.pos, fromHeading: pose.heading as Heading | undefined, fuelBefore: b.fuel };
       this.persist();
       await this.physical(gen);
-      b.heading = turned(b.heading, op as 'turnLeft' | 'turnRight');
+      physics.turn(b, op as 'turnLeft' | 'turnRight');
       if (pose.heading !== undefined) this.mem.pose = { ...pose, heading: turned(pose.heading as Heading, op as 'turnLeft' | 'turnRight') };
       this.mem.journal = undefined;
       this.persist();
@@ -499,14 +495,10 @@ export class SimTurtle {
       case 'digDown': {
         const dir = op === 'dig' ? 'front' : op === 'digUp' ? 'up' : 'down';
         await this.physical(gen);
-        const p = this.adjacent(dir, true);
-        const block = this.world.get(p.x, p.y, p.z);
-        if (!block || this.world.isFluid(block)) return { ok: false, code: 'nothing_to_dig', reason: 'Nothing to dig here' };
-        if (SimWorld.isUnbreakable(block)) return { ok: false, code: 'unbreakable', reason: 'Unbreakable block detected' };
-        const drop = this.world.breakBlock(p);
-        if (drop) this.addItem(drop);
+        const dug = physics.dig(this.world, b, dir);
+        if (!dug.ok) return { ok: false, code: classifyReason(dug.reason), reason: dug.reason };
         await this.scan(gen, [dir]);
-        return { ok: true, data: { block: block.name } };
+        return { ok: true, data: { block: dug.block } };
       }
       case 'inspect':
       case 'inspectUp':
@@ -520,21 +512,9 @@ export class SimTurtle {
         b.selected = args.slot as number;
         return { ok: true };
       case 'refuel': {
-        const slot = b.slots[b.selected - 1];
-        const value = slot ? SimWorld.fuelValue(slot.name) : 0;
-        if (!slot || value === 0) return { ok: false, code: 'failed', reason: 'Items not combustible' };
-        if (b.fuel === 'unlimited' || b.fuelLimit === 'unlimited') return { ok: true };
-        const want = (args.count as number | undefined) ?? slot.count;
-        let used = 0;
-        while (used < want && used < slot.count && b.fuel + value <= b.fuelLimit) {
-          b.fuel += value;
-          used++;
-        }
-        if (want === 0) return { ok: true, data: { fuel: b.fuel } };
-        slot.count -= used;
-        if (slot.count === 0) b.slots[b.selected - 1] = null;
-        if (used === 0) return { ok: false, code: 'failed', reason: 'Fuel limit reached' };
-        return { ok: true, data: { fuel: b.fuel, used } };
+        const r = physics.refuel(b, args.count as number | undefined);
+        if (!r.ok) return { ok: false, code: 'failed', reason: r.reason };
+        return { ok: true, data: { fuel: b.fuel, used: r.used } };
       }
       case 'calibrate': {
         const pos = { x: args.x as number, y: args.y as number, z: args.z as number };
@@ -593,29 +573,6 @@ export class SimTurtle {
     }
     if (out.length) this.send({ type: 'observe', blocks: out });
     return out;
-  }
-
-  /** Put an item in the inventory like a turtle does: selected slot first, then wrap around. */
-  private addItem(item: SimItem): void {
-    const slots = this.body.slots;
-    let left = item.count;
-    const order = Array.from({ length: 16 }, (_, i) => (this.body.selected - 1 + i) % 16);
-    for (const i of order) {
-      const s = slots[i];
-      if (s && s.name === item.name && s.count < 64) {
-        const n = Math.min(64 - s.count, left);
-        s.count += n;
-        left -= n;
-        if (!left) return;
-      }
-    }
-    for (const i of order) {
-      if (!slots[i]) {
-        slots[i] = { name: item.name, count: left };
-        return;
-      }
-    }
-    this.world.spilled += left; // no room: the item drops into the world
   }
 }
 

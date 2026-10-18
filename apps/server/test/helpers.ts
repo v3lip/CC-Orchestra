@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import type { Heading, Pose } from '@ccfleet/protocol';
-import { InMemoryStore, SimTurtle, SimWorld, type MemoryStore, type TurtleBody } from '@ccfleet/sim';
+import { CCTurtle, InMemoryStore, SimTurtle, SimWorld, type MemoryStore, type TurtleBody } from '@ccfleet/sim';
 import { buildApp } from '../src/app';
 import type { Config } from '../src/config';
 import { openDb } from '../src/db';
@@ -21,13 +22,17 @@ export function testConfig(dbFile = ':memory:'): Config {
   };
 }
 
+export const TURTLE_DIR = fileURLToPath(new URL('../../../turtle', import.meta.url));
+
 export async function startServer(opts: { dbFile?: string; port?: number } = {}) {
   const config = testConfig(opts.dbFile);
+  config.turtleDir = TURTLE_DIR;
   const db = openDb(config.dbFile);
   const { app, fleet } = await buildApp(config, { db, fleet: FAST });
   await app.listen({ host: '127.0.0.1', port: opts.port ?? 0 });
   const port = (app.server.address() as AddressInfo).port;
-  return { app, fleet, port, wsUrl: `ws://127.0.0.1:${port}/ws/turtle`, close: () => app.close() };
+  config.publicUrl = `http://127.0.0.1:${port}`; // read per request by the installer route
+  return { app, fleet, port, baseUrl: config.publicUrl, wsUrl: `ws://127.0.0.1:${port}/ws/turtle`, close: () => app.close() };
 }
 
 export function knownPose(x: number, y: number, z: number, heading: Heading): Pose {
@@ -69,12 +74,12 @@ export async function spawnTurtle(
   return turtle;
 }
 
-export async function waitFor<T>(fn: () => T | undefined | null | false, timeoutMs = 5000, label = 'condition'): Promise<T> {
+export async function waitFor<T>(fn: () => T | undefined | null | false, timeoutMs = 5000, label: string | (() => string) = 'condition'): Promise<T> {
   const start = Date.now();
   for (;;) {
     const v = fn();
     if (v) return v;
-    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${label}`);
+    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${typeof label === 'function' ? label() : label}`);
     await new Promise((r) => setTimeout(r, 10));
   }
 }
@@ -90,4 +95,45 @@ export async function settle(server: Awaited<ReturnType<typeof startServer>>, ba
 /** A world where y=100 and above is open air (generated terrain tops out near y=70). */
 export function openWorld(): SimWorld {
   return new SimWorld(42);
+}
+
+const HEADING_LETTER = ['n', 'e', 's', 'w'];
+
+/**
+ * Install the REAL Lua agent on a simulated turtle the way a player would: download
+ * install.lua from the backend, run `install <code>`, answer the calibration prompt.
+ */
+export async function spawnLuaTurtle(
+  server: Awaited<ReturnType<typeof startServer>>,
+  world: SimWorld,
+  at: { x: number; y: number; z: number; heading?: Heading },
+  extra: { fuel?: number | 'unlimited'; opMs?: number; calibrate?: boolean; gps?: boolean; slots?: TurtleBody['slots'] } = {},
+) {
+  const heading = at.heading ?? 0;
+  const body: TurtleBody = {
+    pos: { x: at.x, y: at.y, z: at.z },
+    heading,
+    fuel: extra.fuel ?? 100,
+    fuelLimit: extra.fuel === 'unlimited' ? 'unlimited' : 20000,
+    slots: extra.slots ?? Array(16).fill(null),
+    selected: 1,
+  };
+  const { code } = server.fleet.createEnrollment({ world: 'sim', simulated: true });
+  const computerId = nextComputer++;
+  const t = new CCTurtle({
+    world,
+    body,
+    computerId,
+    opMs: extra.opMs ?? 20,
+    gps: extra.gps ?? false,
+    inputs: [extra.calibrate === false ? '' : `${at.x} ${at.y} ${at.z} ${HEADING_LETTER[heading]}`],
+  });
+  t.files.set('install.lua', await (await fetch(`${server.baseUrl}/turtle/install.lua`)).text());
+  await t.boot('install.lua', [code]);
+  const view = await waitFor(
+    () => server.fleet.listTurtles().find((v) => v.computerId === computerId && v.connection === 'online' && v.state),
+    8000,
+    () => `lua turtle #${computerId} online (status ${t.status} ${t.lastError ?? ''}; output: ${t.output.slice(-5).join(' | ')})`,
+  );
+  return Object.assign(t, { turtleId: view.id });
 }

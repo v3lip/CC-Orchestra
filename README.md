@@ -2,7 +2,7 @@
 
 Self-hosted fleet management for CC: Tweaked mining turtles: a browser dashboard, a Node backend, and (from Milestone 2) a Lua agent on each turtle.
 
-> **Status: Milestone 1.** Backend, persistence, simulator and dashboard work and are tested **against the simulator**. The in-game Lua agent comes in Milestone 2. See [docs/progress.md](docs/progress.md).
+> **Status: Milestone 2.** Backend, dashboard, simulator and the Lua turtle agent (pairing, telemetry, calibration, manual control) are done and tested **outside Minecraft**. Next: verify in-game with [docs/in-game-checklist.md](docs/in-game-checklist.md). See [docs/progress.md](docs/progress.md).
 
 ## Quick start (local development)
 
@@ -22,6 +22,12 @@ npm run sim -- --count 6
 ```
 
 Open http://127.0.0.1:8787, log in with `ADMIN_PASSWORD` from `.env`, select turtles and drive them (W/S/A/D to move and turn, R/F for up and down).
+
+Add `--lua` to run the **real Lua agent** (`turtle/fleet/agent.lua`, installed through the real installer) in a CC-like host instead of the TypeScript agent:
+
+```bash
+npm run sim -- --lua --count 3 --data ./sim-data-lua
+```
 
 Simulator options: `--count N`, `--speed 2` (faster ops), `--reset` (fresh world and turtles), `--no-calibrate` (start with unknown pose), `--no-gps`. Simulated turtles are registered in the world `sim`, so their map never mixes with real data. They are marked **SIM** everywhere.
 
@@ -62,17 +68,25 @@ Data persists in the `fleet-data` volume. The port is bound to `127.0.0.1` only;
 
 Your instance: MC 1.16.5, Forge 36.2.26, CC: Tweaked 1.100.2. **The world's http rules currently block local addresses.** [docs/minecraft-setup.md](docs/minecraft-setup.md) shows the one narrow allow rule to add, and covers chunk loading, fuel and GPS.
 
+Then, on a mining turtle (create the code with **Add turtle** in the dashboard):
+
+```
+wget http://127.0.0.1:8787/turtle/install.lua install.lua
+install ABCD-EFGH
+```
+
 ## Docs
 
 - [Architecture and strategy definitions](docs/architecture.md)
 - [Wire protocol](docs/protocol.md)
 - [Minecraft setup](docs/minecraft-setup.md)
+- [In-game verification checklist](docs/in-game-checklist.md)
 - [Progress notes](docs/progress.md)
 
 ## Milestones
 
 1. ✅ Repository, backend, persistence, simulator, basic dashboard
-2. Real Lua turtle pairing, telemetry, calibrated position, manual control
+2. ✅ Real Lua turtle pairing, telemetry, calibrated position, manual control (in-game check pending)
 3. One reliable tunnel job, automatic return, unloading and resume
 4. Multi-turtle scheduling, groups, depot queues, collision handling
 5. More strategies, formations, persistent 2D mapping

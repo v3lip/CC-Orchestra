@@ -497,6 +497,10 @@ export class Fleet {
       this.updateItem(rec.stopWait.batchId, rec.id, { status: rec.stopWait.acked ? 'acknowledged' : 'unreachable', reason: 'connection lost' });
       rec.stopWait = undefined;
     }
+    if (rec.releaseWait) {
+      this.updateItem(rec.releaseWait.batchId, rec.id, { status: 'unreachable', reason: 'connection lost before the turtle confirmed; it is still holding' });
+      rec.releaseWait = undefined;
+    }
     if (rec.state) rec.state.currentCommandId = undefined;
     this.saveState(rec);
     this.log('warn', `${rec.name} disconnected (${why}); last known position is still treated as occupied`, rec.id);

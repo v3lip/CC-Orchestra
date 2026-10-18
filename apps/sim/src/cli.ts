@@ -13,6 +13,7 @@ import { parseArgs } from 'node:util';
 import type { Pose } from '@ccfleet/protocol';
 import { SimWorld, type TurtleBody } from './world';
 import { SimTurtle, type AgentMemory, type MemoryStore } from './turtle';
+import { CCTurtle } from './cc/host';
 
 const { values } = parseArgs({
   options: {
@@ -24,12 +25,15 @@ const { values } = parseArgs({
     'no-gps': { type: 'boolean', default: false },
     reset: { type: 'boolean', default: false },
     seed: { type: 'string', default: '1337' },
+    // Run the real Lua agent (turtle/fleet/agent.lua) in the CC host instead of the TS agent.
+    lua: { type: 'boolean', default: false },
   },
 });
 
 const count = Math.max(1, Math.min(64, Number(values.count)));
 const opMs = Math.round(400 / Math.max(0.1, Number(values.speed)));
-const dataDir = values.data!;
+// npm runs workspace scripts from apps/sim; resolve --data against where npm was invoked.
+const dataDir = resolve(process.env.INIT_CWD ?? process.cwd(), values.data!);
 const server = values.server!.replace(/\/$/, '');
 const wsUrl = server.replace(/^http/, 'ws') + '/ws/turtle';
 
@@ -73,6 +77,7 @@ async function pairingCode(name: string): Promise<string> {
 }
 
 const turtles: SimTurtle[] = [];
+const luaTurtles: { t: CCTurtle; diskFile: string }[] = [];
 for (let i = 0; i < count; i++) {
   const computerId = 1000 + i;
   const bodyFile = join(dataDir, `body-${computerId}.json`);
@@ -91,6 +96,29 @@ for (let i = 0; i < count; i++) {
   const initialPose: Pose | undefined = values['no-calibrate']
     ? undefined
     : { pos: { ...body.pos }, heading: body.heading, position: 'known', headingConfidence: 'known', source: 'manual' };
+  if (values.lua) {
+    const diskFile = join(dataDir, `disk-${computerId}.json`);
+    const files = new Map<string, string>(existsSync(diskFile) ? JSON.parse(readFileSync(diskFile, 'utf8')) : []);
+    const label = files.size ? `sim-lua-${i + 1}` : undefined;
+    const t = new CCTurtle({
+      world,
+      body,
+      computerId,
+      label,
+      files,
+      opMs,
+      gps: !values['no-gps'],
+      inputs: [values['no-calibrate'] ? '' : `${body.pos.x} ${body.pos.y} ${body.pos.z} ${'nesw'[body.heading]}`],
+      onPrint: (m) => console.log(`[lua #${computerId}] ${m}`),
+    });
+    if (files.has('startup.lua')) await t.boot('startup.lua');
+    else {
+      t.files.set('install.lua', await (await fetch(`${server}/turtle/install.lua`)).text());
+      await t.boot('install.lua', [await pairingCode(`Sim Lua ${i + 1}`)]);
+    }
+    luaTurtles.push({ t, diskFile });
+    continue;
+  }
   const needsCode = !store.load()?.creds;
   const t = new SimTurtle({
     world,
@@ -112,13 +140,18 @@ for (let i = 0; i < count; i++) {
 function saveAll() {
   writeFileSync(worldFile, JSON.stringify(world.toJSON()));
   for (const t of turtles) writeFileSync(join(dataDir, `body-${t.computerId}.json`), JSON.stringify(t.body));
+  for (const { t, diskFile } of luaTurtles) {
+    writeFileSync(join(dataDir, `body-${t.computerId}.json`), JSON.stringify(t.body));
+    writeFileSync(diskFile, JSON.stringify([...t.files]));
+  }
 }
 setInterval(saveAll, 5000);
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     saveAll();
     for (const t of turtles) t.stop();
+    for (const { t } of luaTurtles) t.shutdown();
     process.exit(0);
   });
 }
-console.log(`[sim] ${count} simulated turtle(s) → ${wsUrl} (op time ${opMs} ms, data in ${dataDir})`);
+console.log(`[sim] ${count} simulated turtle(s)${values.lua ? ' running the real Lua agent' : ''} → ${wsUrl} (op time ${opMs} ms, data in ${dataDir})`);

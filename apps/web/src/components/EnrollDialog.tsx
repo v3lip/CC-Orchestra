@@ -70,14 +70,18 @@ export function EnrollDialog({ onClose }: { onClose: () => void }) {
               <div className="num text-3xl font-bold tracking-[0.2em] text-white">{result.code}</div>
               <div className="text-[11px] text-dim">single use · expires {new Date(result.expiresAt).toLocaleTimeString()}</div>
             </div>
-            <div className="rounded border border-amber-800/70 bg-amber-950/30 p-2 text-xs text-amber-200">
-              The in-game Lua agent comes in Milestone 2. Until then, use pairing codes with the simulator — <span className="num">npm run sim</span> creates its own.
-            </div>
             <div className="text-xs text-dim">
-              In Milestone 2 you will run on the turtle:
-              <pre className="num mt-1 overflow-x-auto rounded bg-black/50 p-2 text-[11px] text-slate-300">
+              On the turtle (a mining turtle: equip a diamond pickaxe), run:
+              <pre className="num mt-1 overflow-x-auto rounded bg-black/50 p-2 text-[11px] text-slate-200 select-all">
                 wget {result.publicUrl}/turtle/install.lua install.lua{'\n'}install {result.code}
               </pre>
+              <ul className="mt-2 list-disc space-y-0.5 pl-4">
+                <li>The installer asks for the turtle's coordinates and facing. Enter them, or press Enter and calibrate here later.</li>
+                <li>
+                  If it says the domain is not permitted, add the http allow rule from <span className="num">docs/minecraft-setup.md</span>.
+                </li>
+                <li>Codes work once. For the simulator, <span className="num">npm run sim</span> makes its own.</li>
+              </ul>
             </div>
             <div className="flex justify-end">
               <button onClick={onClose} className="rounded bg-panel-2 px-3 py-1 hover:bg-slate-700">

@@ -2,7 +2,8 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { MAX_MESSAGE_BYTES, StopReason } from '@ccfleet/protocol';
 import type { Config } from './config';
@@ -177,6 +178,22 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
   app.get('/ws/turtle', { websocket: true }, (socket, req) => handleTurtleSocket(socket, fleet, req.ip));
 
   if (existsSync(config.turtleDir)) {
+    // The installer gets this backend's public URL baked in.
+    app.get('/turtle/install.lua', async (_req, reply) => {
+      const src = readFileSync(join(config.turtleDir, 'install.lua'), 'utf8');
+      reply.type('text/plain; charset=utf-8');
+      return src.replace('__BASE_URL__', config.publicUrl.replace(/\/$/, ''));
+    });
+    app.get('/turtle/manifest.json', async () => {
+      const agent = readFileSync(join(config.turtleDir, 'fleet/agent.lua'), 'utf8');
+      return {
+        version: /AGENT_VERSION = "([^"]+)"/.exec(agent)?.[1] ?? 'unknown',
+        files: [
+          { src: 'fleet/agent.lua', dest: '/fleet/agent.lua' },
+          { src: 'fleet/startup.lua', dest: '/startup.lua' },
+        ],
+      };
+    });
     await app.register(fastifyStatic, { root: config.turtleDir, prefix: '/turtle/', decorateReply: false });
   }
   if (config.webDist && existsSync(config.webDist)) {

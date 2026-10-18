@@ -1,6 +1,6 @@
 # Wire protocol v1
 
-Source of truth: [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts). This page explains it for the Lua agent author.
+Source of truth: [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts). The Lua implementation is [`turtle/fleet/agent.lua`](../turtle/fleet/agent.lua); the TypeScript simulator agent is `apps/sim/src/turtle.ts`.
 
 ## Transport
 
