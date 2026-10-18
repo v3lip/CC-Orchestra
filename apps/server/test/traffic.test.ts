@@ -141,7 +141,7 @@ describe('campaigns', () => {
       name: 'Wide',
       depotId: depot.id,
       start: true,
-      split: { params: { origin: { x: 2, y: 100, z: 0 }, heading: 1, width: 4, height: 2, length: 6 }, turtleIds: [south.turtleId!, north.turtleId!] },
+      split: { strategy: 'tunnel', params: { origin: { x: 2, y: 100, z: 0 }, heading: 1, width: 4, height: 2, length: 6 }, turtleIds: [south.turtleId!, north.turtleId!] },
     });
     expect(r.jobs).toHaveLength(2);
     // Heading east, "right" is +Z: the turtle at z=0 gets columns 0-1, the one at z=3 gets 2-3.
@@ -161,7 +161,7 @@ describe('campaigns', () => {
     sims.push(a, b);
     const params = (z: number) => ({ origin: { x: 2, y: 100, z }, heading: 1 as const, width: 2, height: 2, length: 4 });
     expect(() =>
-      server.jobs.createCampaign({ name: 'Bad', depotId: depot.id, jobs: [{ turtleId: a.turtleId!, params: params(0) }, { turtleId: b.turtleId!, params: params(1) }] }),
+      server.jobs.createCampaign({ name: 'Bad', depotId: depot.id, jobs: [{ turtleId: a.turtleId!, strategy: 'tunnel', params: params(0) }, { turtleId: b.turtleId!, strategy: 'tunnel', params: params(1) }] }),
     ).toThrow(/same cells/);
     expect(server.jobs.listJobs()).toHaveLength(0);
   });
@@ -176,14 +176,17 @@ describe('campaigns', () => {
       name: 'Pair',
       depotId: depot.id,
       jobs: [
-        { turtleId: a.turtleId!, params: { origin: { x: 2, y: 100, z: 0 }, heading: 1, width: 1, height: 2, length: 8 } },
-        { turtleId: b.turtleId!, params: { origin: { x: 2, y: 100, z: 5 }, heading: 1, width: 1, height: 2, length: 8 } },
+        { turtleId: a.turtleId!, strategy: 'tunnel', params: { origin: { x: 2, y: 100, z: 0 }, heading: 1, width: 1, height: 2, length: 8 } },
+        { turtleId: b.turtleId!, strategy: 'tunnel', params: { origin: { x: 2, y: 100, z: 5 }, heading: 1, width: 1, height: 2, length: 8 } },
       ],
     });
     const ids = r.jobs.map((j) => j.id);
     let sawSpot = false;
     const watch = setInterval(() => {
-      if (ids.some((id) => server.jobs.getJob(id)?.note?.includes('spot'))) sawSpot = true;
+      for (const t of [a, b]) {
+        const pos = server.fleet.getTurtle(t.turtleId!)?.state?.pose.pos;
+        if (pos && pos.x === 0 && pos.z === 3 && server.jobs.listJobs().some((j) => j.turtleId === t.turtleId && j.phase === 'waiting')) sawSpot = true;
+      }
     }, 5);
     expect(server.jobs.campaignAction(r.campaignId, 'start').every((x) => x.ok)).toBe(true);
     await waitFor(() => ids.every((id) => (server.jobs.getJob(id)?.progress.cellsCleared ?? 0) >= 2));
@@ -198,4 +201,42 @@ describe('campaigns', () => {
     expect(world.spilled).toBe(0);
     expect(server.jobs.listDepots()[0].lockedBy).toBeUndefined();
   }, 90000);
+
+  it('without waiting spots, a turtle waits near the dock, not back in its tunnel', async () => {
+    const { server, world, depot } = await site();
+    // Tunnels start 14 blocks out, reached through open corridors.
+    for (let x = 2; x < 14; x++) for (const z of [0, 5]) for (const y of [100, 101]) world.set(x, y, z, null);
+    const junk = slots(Object.fromEntries(Array.from({ length: 13 }, (_, i) => [i + 1, { name: `minecraft:junk_${i}`, count: 64 }])));
+    const a = await spawnTurtle(server, world, { x: 1, y: 100, z: 0, heading: 1 }, { opMs: 4, fuel: 800, slots: junk.map((s) => s && { ...s }) });
+    const b = await spawnTurtle(server, world, { x: 1, y: 100, z: 5, heading: 1 }, { opMs: 4, fuel: 800, slots: junk.map((s) => s && { ...s }) });
+    sims.push(a, b);
+    const r = server.jobs.createCampaign({
+      name: 'Far',
+      depotId: depot.id,
+      start: true,
+      jobs: [
+        { turtleId: a.turtleId!, strategy: 'tunnel', params: { origin: { x: 14, y: 100, z: 0 }, heading: 1, width: 1, height: 2, length: 4 } },
+        { turtleId: b.turtleId!, strategy: 'tunnel', params: { origin: { x: 14, y: 100, z: 5 }, heading: 1, width: 1, height: 2, length: 4 } },
+      ],
+    });
+    const ids = r.jobs.map((j) => j.id);
+    let waited = 0;
+    let farthest = 0;
+    const watch = setInterval(() => {
+      for (const j of server.jobs.listJobs()) {
+        if (j.phase !== 'waiting') continue;
+        const pos = server.fleet.getTurtle(j.turtleId)?.state?.pose.pos;
+        if (!pos) continue;
+        waited++;
+        farthest = Math.max(farthest, Math.abs(pos.x) + Math.abs(pos.z));
+      }
+    }, 5);
+    const done = await finishAll(server, ids, 90000);
+    clearInterval(watch);
+    expect(done.map((j) => j.error)).toEqual([undefined, undefined]);
+    expect(done.map((j) => j.status)).toEqual(['completed', 'completed']);
+    expect(waited).toBeGreaterThan(0);
+    expect(farthest).toBeLessThanOrEqual(8);
+    expect(world.spilled).toBe(0);
+  }, 120000);
 });

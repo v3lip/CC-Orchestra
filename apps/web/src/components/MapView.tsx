@@ -4,6 +4,7 @@ import { HEADING_VECTORS } from '@ccfleet/protocol';
 import { mapCache, useFleet } from '../lib/store';
 import { api } from '../lib/api';
 import { STATUS_COLOR, blockColor, isChunky, shortItem, statusOf } from '../lib/status';
+import { isOreBlock } from '@ccfleet/protocol';
 
 interface Camera {
   x: number; // block coords at the screen centre
@@ -39,6 +40,7 @@ export function MapView() {
   const depots = useFleet((s) => s.depots);
   const jobDraft = useFleet((s) => s.jobDraft);
   const showChunks = useFleet((s) => s.showChunks);
+  const showOres = useFleet((s) => s.showOres);
   const forcedChunks = useFleet((s) => s.forcedChunks);
   const markChunks = useFleet((s) => s.markChunks);
   const draftChunks = useFleet((s) => s.draftChunks);
@@ -131,6 +133,9 @@ export function MapView() {
       }
     }
 
+    // Ores seen near this level (other levels too, so finds in walls/floors aren't missed).
+    if (showOres) drawOres(ctx, y, toSx, toSy, s, x0, x1, z0, z1);
+
     // Origin axes, for orientation.
     ctx.strokeStyle = 'rgba(34,211,238,0.15)';
     ctx.beginPath();
@@ -149,7 +154,12 @@ export function MapView() {
     for (const d of Object.values(depots)) if (d.world === world && d.dimension === dimension) drawDepot(ctx, d, toSx, toSy, s, y);
     for (const j of Object.values(jobs)) {
       if (j.world !== world || j.dimension !== dimension || j.status === 'completed' || j.status === 'cancelled') continue;
-      drawTunnel(ctx, j.params, toSx, toSy, s, y, j.progress.unitsDone, false);
+      // Each section with its own share of the finished slices.
+      let done = j.progress.unitsDone;
+      for (const seg of j.segments ?? []) {
+        drawTunnel(ctx, seg, toSx, toSy, s, y, Math.max(0, Math.min(seg.length, done)), false);
+        done -= seg.length;
+      }
       if (j.route?.length) drawRoute(ctx, j, toSx, toSy, y);
     }
     for (const d of jobDraft ?? []) drawTunnel(ctx, d, toSx, toSy, s, y, 0, true);
@@ -324,6 +334,7 @@ export function MapView() {
       </div>
       <Legend />
       <ChunkToggle />
+      <OreToggle />
     </div>
   );
 }
@@ -710,4 +721,52 @@ function drawMarkedChunks(
     ctx.setLineDash([]);
   }
   ctx.restore();
+}
+
+/** Ore blocks within 8 levels of the current Y, drawn as diamonds (brighter on this level). */
+function drawOres(ctx: CanvasRenderingContext2D, y: number, toSx: (x: number) => number, toSy: (z: number) => number, s: number, x0: number, x1: number, z0: number, z1: number) {
+  ctx.save();
+  const r = Math.max(2.5, s * 0.32);
+  for (let dy = -8; dy <= 8; dy++) {
+    const layer = mapCache.layer(y + dy);
+    if (!layer) continue;
+    for (const b of layer.values()) {
+      if (!isOreBlock(b.block) || b.x < x0 || b.x > x1 || b.z < z0 || b.z > z1) continue;
+      const cx = toSx(b.x + 0.5);
+      const cy = toSy(b.z + 0.5);
+      ctx.globalAlpha = dy === 0 ? 1 : 0.55;
+      ctx.fillStyle = blockColor(b.block!);
+      ctx.strokeStyle = dy === 0 ? '#ffffff' : 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r, cy);
+      ctx.lineTo(cx, cy + r);
+      ctx.lineTo(cx - r, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      if (dy !== 0 && s >= 14) {
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '9px system-ui';
+        ctx.textAlign = 'left';
+        ctx.fillText(dy > 0 ? `+${dy}` : `${dy}`, cx + r + 1, cy + 3);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function OreToggle() {
+  const show = useFleet((s) => s.showOres);
+  const set = useFleet((s) => s.setShowOres);
+  return (
+    <button
+      onClick={() => set(!show)}
+      className={`absolute right-3 top-[86px] rounded border px-2 py-0.5 text-[10px] ${show ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge bg-black/60 text-dim'}`}
+      title="Mark ore blocks seen within 8 levels of the current Y (number = levels above/below)"
+    >
+      ◆ Ores {show ? 'on' : 'off'}
+    </button>
+  );
 }

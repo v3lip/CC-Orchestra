@@ -122,15 +122,18 @@ export const chunkOf = (p: { x: number; z: number }) => ({ cx: Math.floor(p.x / 
  * Chunks a tunnel job will visit: the tunnel's footprint, the dock, and the chunks on a
  * straight line between them (an approximation of the route).
  */
-export function jobChunks(p: TunnelParams, dock: Vec3): { cx: number; cz: number }[] {
+export function jobChunks(segs: TunnelParams[], dock: Vec3): { cx: number; cz: number }[] {
+  const p = segs[0];
   const out = new Map<string, { cx: number; cz: number }>();
   const add = (x: number, z: number) => {
     const c = chunkOf({ x, z });
     out.set(`${c.cx},${c.cz}`, c);
   };
-  const b = tunnelBox(p);
-  for (let cx = Math.floor(b.min.x / 16); cx <= Math.floor(b.max.x / 16); cx++)
-    for (let cz = Math.floor(b.min.z / 16); cz <= Math.floor(b.max.z / 16); cz++) out.set(`${cx},${cz}`, { cx, cz });
+  for (const seg of segs) {
+    const b = tunnelBox(seg);
+    for (let cx = Math.floor(b.min.x / 16); cx <= Math.floor(b.max.x / 16); cx++)
+      for (let cz = Math.floor(b.min.z / 16); cz <= Math.floor(b.max.z / 16); cz++) out.set(`${cx},${cz}`, { cx, cz });
+  }
   add(dock.x, dock.z);
   const steps = Math.max(Math.abs(p.origin.x - dock.x), Math.abs(p.origin.z - dock.z), 1);
   for (let i = 0; i <= steps; i++) add(Math.round(dock.x + ((p.origin.x - dock.x) * i) / steps), Math.round(dock.z + ((p.origin.z - dock.z) * i) / steps));

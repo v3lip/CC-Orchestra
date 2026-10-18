@@ -50,7 +50,7 @@
 - **Tunnel plan:** each slice (one step along the heading) is a work unit. The turtle stands at lane rows `1, 4, 7…` (clamped to the height) and digs the rows directly above and below, visiting columns in a serpentine. Odd slices run in reverse so slices connect. **Checkpoint** = the next slice index, plus the resume pose while on a depot trip. Re-running a slice is harmless: cells already observed as air are skipped, and digging air is a no-op.
 - **Navigation:** A* over observed cells: air 1, fluid 1.5, unknown 3, diggable solid 3. Only cells inside the job volume (minus exclusions, minus protected blocks) may be dug. Other turtles' last known cells (including offline turtles and uncertain candidates) and the depot chests are walls. Blocked moves re-plan (max 30). Falling blocks are re-dug (max 24 per cell). Unbreakable cells are skipped and counted.
 - **Depot trips:** triggered when unreserved free slots ≤ `minFreeSlots`, or when fuel < estimated way home (Manhattan × 1.25 + 10) + `fuelReserve`, after first burning carried fuel. A trip: save the resume pose → path to the dock → take the dock lock → face the dock heading → `inventoryInfo` → verified `drop` of every slot except keep slots and fuel in the fuel slot → top up from the fuel chest (`suck` + `refuel`; non-fuel goes back and pauses the job) → burn carried fuel only if still short → check there's enough to get back → release the lock → return to the resume pose.
-- **Dock:** one turtle at a time, held from heading in until it steps off the dock. A turtle that finds the dock busy claims the nearest free **waiting spot** (if the depot has any) and waits there, otherwise where it is. While waiting it steps aside if another turtle is waiting for it. A lock held by an offline turtle stays (it may physically be in the way). A job paused mid-trip keeps its dock/spot; resuming finishes the trip without unloading again. When other jobs share the depot, a finished turtle parks at its tunnel's origin instead of on the dock.
+- **Dock:** one turtle at a time. A returning turtle first walks to about 6 steps from the dock, then asks for it (so whoever arrives first docks first); the lock is held from there until it steps off the dock. A turtle that finds the dock busy claims the nearest free **waiting spot** if the depot has one. Otherwise it picks a cell itself: the cell of its own route closest to the dock that the holder's way in doesn't use (never right next to the dock), or else the nearest known-free cell off that way. While waiting it steps aside if another turtle is waiting for it. A lock held by an offline turtle stays (it may physically be in the way). A job paused mid-trip keeps its dock/spot; resuming finishes the trip without unloading again. When other jobs share the depot, a finished turtle parks at its tunnel's origin instead of on the dock.
 - **No overlapping jobs:** the server refuses a tunnel whose volume intersects an unfinished job's. Campaigns check all their jobs before creating any.
 
 ## Traffic (Milestone 4)
@@ -63,15 +63,23 @@
 - **Campaigns:** several jobs created together, either one tunnel per turtle, or one tunnel **split into side-by-side lanes** (one per turtle, assigned left to right by position so paths don't cross; at most one turtle per column). Start, pause or cancel apply to the whole campaign; there are also start/pause actions for the jobs of any set of turtles (selection or fleet group).
 - **Go to:** drives one turtle to a cell through known space under the same rules, never digging. Manual commands, stops and disconnects end it.
 
-## Mining strategy definitions (tunnel implemented; others planned for Milestone 5)
+## Mining strategies
 
-| Strategy | Definition |
-|---|---|
-| **Tunnel** ✅ | Clear every cell `origin + d·forward + w·right + h·up` for `0≤d<L, 0≤w<W, 0≤h<H`. The origin is the bottom-left cell of the first slice when looking along the heading. |
-| **Branch / strip mine** | A main corridor (W×H, length L) along the heading. Every S blocks, side branches of length B leave both sides, perpendicular to it. Branch cross-section is configurable (default 1×2). Branch spacing S is measured between branch centrelines. |
-| **Grid mine** | Parallel 1×2 tunnels covering a rectangle at one target Y, spaced S apart (default 3, so every block is exposed to a tunnel face). |
-| **Quarry** | Remove every block in an axis-aligned box [x0..x1]×[y0..y1]×[z0..z1], top layer first. |
-| **Layer clear** | A quarry restricted to the given Y layers (e.g. flattening an area). |
-| **Vein follow** (later) | From an observed ore block, mine connected blocks of the same ore that turtles actually inspect, within the job boundary. |
+Every strategy is turned into an ordered list of **sections** (`segmentsFor`): plain tunnel boxes mined one after another. The runner, estimate, conflict checks, chunk list and map all work on sections, so a new strategy only has to describe its sections. A job's checkpoint counts slices across all sections.
+
+| Strategy | Definition | Sections |
+|---|---|---|
+| **Tunnel** ✅ | Clear every cell `origin + d·forward + w·right + h·up` for `0≤d<L, 0≤w<W, 0≤h<H`. The origin is the bottom-left cell of the first slice when looking along the heading. | one |
+| **Branch mine** ✅ | A corridor (W×H ≤3×3, length L) along the heading. Every S blocks (S, 2S, …) a 1-wide branch of the corridor's height and length B leaves the left side, the right side, or both. | corridor parts between branch points, each followed by its branches |
+| **Quarry** ✅ | Remove every block of a W×L box, D deep, going down from the origin (top-left of the top layer). Also for flattening. | one per layer of ≤3 rows, top down |
+| **Grid mine** (planned) | Parallel 1×2 tunnels covering a rectangle at one Y, spaced S apart. | |
+
+Tunnels and quarries can also be **shared** between turtles: split into side-by-side lanes (campaign), one per turtle.
+
+### Seeing what's around: wall scanning and vein following (job policy)
+
+- **Scan the walls** (`policy.scanWalls`): at each column the turtle looks at every outer face of the work area it hasn't seen yet: side walls on the first/last column, end walls on the first/last slice, the ceiling and the floor. It visits each row of the column (moving in already looks up and down), turns and inspects, then returns to the column's station. Inner faces (next to other parts of the work area) are skipped. Costs about 2 vertical moves per column plus turns.
+- **Follow veins** (`policy.veins = {ores, maxBlocks, reach}`): after each station, the runner looks in the map for blocks its own turtle saw during this job (the map's `source` is that turtle and the sighting is newer than the job; ores other turtles reported are ignored) matching any of `ores` (`oreMatches`: word-based and case-insensitive, so `coal`, `coal_ore` or `Coal Ore` match `minecraft:coal_ore`, `emendatusenigmatica:coal_ore` and `x:ore_coal`; `any`/`_ore` matches any id with the word `ore`/`ores`; `mod:block` is an exact id) outside the work area but within `reach` blocks of it. It goes to the nearest one, mining only that block (`canDig` allows matching ore outside the work area, nothing else), inspects the sides around it, and repeats until nothing reachable is left or `maxBlocks` were mined. Then it returns to where it left the tunnel. Unreachable ores are skipped.
+- **Finds**: every ore the turtle digs (the agent reports the block it dug) is counted in `progress.finds`; ores mined outside the work area also count in `progress.veinBlocks`. The job card shows them, and the map's **◆ Ores** overlay marks ore blocks seen within 8 levels of the current Y.
 
 Multi-turtle jobs will be split into non-overlapping work units (lanes or sub-boxes). Each unit has an owner and a persisted checkpoint, so a reconnecting turtle resumes its own unit instead of duplicating work.

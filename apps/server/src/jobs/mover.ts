@@ -42,6 +42,8 @@ export interface MoverOptions {
   onRoute?(path: Vec3[]): void;
   onEntered?(p: Vec3): void;
   onUnbreakable?(p: Vec3): void;
+  /** A block was dug (name as reported by the turtle, if known). */
+  onDug?(p: Vec3, block: string | undefined): void;
   /** Live note for the operator while waiting in traffic (undefined = clear). */
   onWait?(note: string | undefined): void;
   log(level: 'info' | 'warn' | 'error', msg: string): void;
@@ -154,6 +156,13 @@ export class Mover {
     return !this.unpassable.has(key(p)) && !isProtectedName(block) && this.o.canDig(p, block);
   }
 
+  /** The route moveTo would take from here right now (without the start cell), or null. */
+  plan(goal: Vec3): Vec3[] | null {
+    const here = this.pos();
+    if (eq(here, goal)) return [];
+    return planPath(this.navContext(here, goal), here, goal);
+  }
+
   async moveTo(goal: Vec3): Promise<void> {
     const g = this.known(goal);
     if (g?.cell === 'solid' && isProtectedName(g.block)) {
@@ -188,7 +197,11 @@ export class Mover {
   /** Dig one adjacent cell. Returns false if it cannot be cleared (unbreakable). */
   async digAt(digOp: 'dig' | 'digUp' | 'digDown', p: Vec3): Promise<boolean> {
     const r = await this.step(digOp);
-    if (r.status === 'succeeded' || r.code === 'nothing_to_dig') return true;
+    if (r.status === 'succeeded') {
+      this.o.onDug?.(p, (r.data as { block?: string } | undefined)?.block);
+      return true;
+    }
+    if (r.code === 'nothing_to_dig') return true;
     if (r.code === 'protected') throw new JobError('protected', `${r.reason} at ${fmt(p)} inside the job area. Remove it or add an exclusion, then resume.`);
     if (r.code === 'unbreakable') {
       this.unpassable.add(key(p));

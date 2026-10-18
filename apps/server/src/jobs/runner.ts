@@ -4,9 +4,9 @@
  * state and the observed map, so a run can be stopped at any step and started again
  * from the persisted checkpoint. Movement and traffic rules live in `Mover`.
  */
-import { type Dir, type Heading, type TurtleState, type Vec3, FUEL_ITEMS, HEADING_VECTORS } from '@ccfleet/protocol';
+import { type Box, type Dir, type Heading, type TunnelParams, type TurtleState, type Vec3, FUEL_ITEMS, HEADING_VECTORS, isOreBlock, oreMatches, sectionBox } from '@ccfleet/protocol';
 import type { Fleet } from '../fleet';
-import { eq, fmt, inBox, key, manhattan, sliceStations, tunnelBox, tunnelLocal } from './geometry';
+import { type Station, eq, fmt, inBox, key, manhattan, sliceStations, tunnelLocal } from './geometry';
 import { Interrupt, JobError, Mover, isProtectedName, sleep } from './mover';
 import type { Traffic } from './traffic';
 import type { JobManager, JobRec } from './manager';
@@ -49,9 +49,12 @@ export class JobRunner {
       executor: this.executor,
       isActive: () => this.v.status === 'running',
       stopReason: () => this.v.pauseReason ?? 'paused',
-      canDig: (p) => this.inWork(p),
+      // Inside the work area anything (except protected blocks); outside it only ore
+      // blocks of a followed vein, within reach.
+      canDig: (p, block) => this.inWork(p) || this.veinOre(p, block),
       extraBlocked: () => this.depotCells(),
-      includeBox: () => tunnelBox(this.v.params),
+      includeBox: () => this.workBox(),
+      onDug: (p, block) => this.dug(p, block),
       beforeMove: () => this.serviceIfNeeded(),
       onRoute: (path) => this.publishRoute(path),
       onEntered: (p) => this.entered(p),
@@ -83,9 +86,10 @@ export class JobRunner {
       this.mgr.setPhase(this.job, 'traveling');
       if (this.cp.servicing === 'back') await this.returnToWork();
       else if (this.cp.servicing) await this.service(this.cp.servicing === 'finish');
-      while (this.cp.slice < this.v.params.length) {
+      const total = this.v.segments.reduce((n, s) => n + s.length, 0);
+      while (this.cp.slice < total) {
         this.mgr.setPhase(this.job, 'mining');
-        await this.mineSlice(this.cp.slice);
+        await this.mineUnit(this.cp.slice);
         this.cp.slice++;
         this.v.progress.unitsDone = this.cp.slice;
         this.mgr.save(this.job);
@@ -134,7 +138,38 @@ export class JobRunner {
   }
 
   private inWork(p: Vec3): boolean {
-    return !!tunnelLocal(this.v.params, p) && !this.v.exclusions.some((b) => inBox(b, p));
+    return this.v.segments.some((s) => !!tunnelLocal(s, p)) && !this.v.exclusions.some((b) => inBox(b, p));
+  }
+
+  private workBox(): Box {
+    const boxes = this.v.segments.map(sectionBox);
+    return {
+      min: { x: Math.min(...boxes.map((b) => b.min.x)), y: Math.min(...boxes.map((b) => b.min.y)), z: Math.min(...boxes.map((b) => b.min.z)) },
+      max: { x: Math.max(...boxes.map((b) => b.max.x)), y: Math.max(...boxes.map((b) => b.max.y)), z: Math.max(...boxes.map((b) => b.max.z)) },
+    };
+  }
+
+  /** Is this a block of a followed ore, within reach of the work area? */
+  private veinOre(p: Vec3, block: string | null): boolean {
+    const v = this.v.policy.veins;
+    if (!block || !v?.ores.length || !v.ores.some((o) => oreMatches(o, block))) return false;
+    if (this.v.exclusions.some((b) => inBox(b, p))) return false;
+    return this.v.segments.some((s) => {
+      const b = sectionBox(s);
+      const dx = Math.max(b.min.x - p.x, 0, p.x - b.max.x);
+      const dy = Math.max(b.min.y - p.y, 0, p.y - b.max.y);
+      const dz = Math.max(b.min.z - p.z, 0, p.z - b.max.z);
+      return Math.max(dx, dy, dz) <= v.reach;
+    });
+  }
+
+  /** Count ores the turtle mined. */
+  private dug(p: Vec3, block: string | undefined): void {
+    if (!isOreBlock(block)) return;
+    const finds = (this.v.progress.finds ??= {});
+    finds[block!] = (finds[block!] ?? 0) + 1;
+    if (!this.inWork(p)) this.v.progress.veinBlocks = (this.v.progress.veinBlocks ?? 0) + 1;
+    this.mgr.broadcast(this.job);
   }
 
   private depotCells(): Vec3[] {
@@ -195,11 +230,122 @@ export class JobRunner {
 
   // ------------------------------------------------------------------ mining
 
-  private async mineSlice(d: number): Promise<void> {
-    for (const st of sliceStations(this.v.params, d)) {
+  /** Unit u = slice of a section (sections in mining order). */
+  private async mineUnit(u: number): Promise<void> {
+    let d = u;
+    let seg: TunnelParams | undefined;
+    for (const s of this.v.segments) {
+      if (d < s.length) {
+        seg = s;
+        break;
+      }
+      d -= s.length;
+    }
+    if (!seg) return;
+    for (const st of sliceStations(seg, d)) {
       if (!this.inWork(st.pos)) continue;
       await this.m.moveTo(st.pos);
       for (const c of st.extra) if (this.inWork(c)) await this.clearVertical(c);
+      if (this.v.policy.scanWalls) await this.scanWalls(seg, st);
+      if (this.v.policy.veins?.ores.length) await this.followVeins();
+    }
+  }
+
+  /**
+   * Look at every outer face of this station's column (side walls on the first/last
+   * column, end walls on the first/last slice, ceiling and floor), visiting each row
+   * of the column, so the map shows what's around the work area and ores in it are seen.
+   */
+  private async scanWalls(seg: TunnelParams, st: Station): Promise<void> {
+    const home = st.pos;
+    const local = tunnelLocal(seg, home);
+    if (!local) return;
+    const sides: Heading[] = [];
+    if (local.w === 0) sides.push(((seg.heading + 3) % 4) as Heading);
+    if (local.w === seg.width - 1) sides.push(((seg.heading + 1) % 4) as Heading);
+    if (local.d === 0) sides.push(((seg.heading + 2) % 4) as Heading);
+    if (local.d === seg.length - 1) sides.push(seg.heading as Heading);
+    const unseen = (c: Vec3) => !this.inWork(c) && !this.m.known(c);
+    const beside = (c: Vec3, h: Heading) => ({ x: c.x + HEADING_VECTORS[h].x, y: c.y, z: c.z + HEADING_VECTORS[h].z });
+    const above = (c: Vec3) => ({ ...c, y: c.y + 1 });
+    const below = (c: Vec3) => ({ ...c, y: c.y - 1 });
+    const needs = (c: Vec3) => unseen(above(c)) || unseen(below(c)) || sides.some((h) => unseen(beside(c, h)));
+    // The station's row first, then the others nearest first (moving in looks up and down too).
+    const rows = [home, ...st.extra.filter((c) => this.inWork(c)).sort((a, b) => Math.abs(a.y - home.y) - Math.abs(b.y - home.y))];
+    let moved = false;
+    for (const c of rows) {
+      if (!needs(c)) continue;
+      if (!eq(this.m.pos(), c)) {
+        await this.m.moveTo(c);
+        moved = true;
+      }
+      if (unseen(above(c))) await this.m.step('inspectUp');
+      if (unseen(below(c))) await this.m.step('inspectDown');
+      // Turn the shorter way first.
+      const h = this.m.heading();
+      const order = sides.filter((s) => unseen(beside(c, s))).sort((x, y) => turns(h, x) - turns(h, y));
+      for (const side of order) {
+        if (!unseen(beside(c, side))) continue;
+        await this.m.face(side);
+        await this.m.step('inspect');
+      }
+    }
+    if (moved) await this.m.moveTo(home);
+  }
+
+  /**
+   * Mine every known block of a followed ore within reach that the turtle can get to,
+   * looking around at each one so the rest of the vein is found, then come back.
+   */
+  private async followVeins(): Promise<void> {
+    const v = this.v.policy.veins;
+    const home = this.m.pos();
+    const homeHeading = this.m.heading();
+    const skip = new Set<string>();
+    let mined = 0;
+    while (mined < v.maxBlocks) {
+      const here = this.m.pos();
+      const r = v.reach + 2;
+      const rows = this.fleet.queryMap({ world: this.v.world, dimension: this.v.dimension, x0: here.x - r, x1: here.x + r, z0: here.z - r, z1: here.z + r, y0: here.y - r, y1: here.y + r }).blocks;
+      const target = rows
+        .filter((b) => b.cell === 'solid' && !this.inWork(b) && !skip.has(key(b)) && this.ownSighting(b) && this.veinOre(b, b.block))
+        .sort((a, b) => manhattan(a, here) - manhattan(b, here))[0];
+      if (!target) break;
+      if (mined === 0) this.setNote(`following a vein of ${target.block}`);
+      try {
+        await this.m.moveTo(target);
+      } catch (e) {
+        if (e instanceof JobError && e.code === 'no_route') {
+          skip.add(key(target));
+          continue;
+        }
+        throw e;
+      }
+      mined++;
+      await this.lookAround();
+    }
+    if (mined > 0) {
+      this.setNote(undefined);
+      await this.m.moveTo(home);
+      await this.m.face(homeHeading);
+    }
+  }
+
+  /** Seen by this job's turtle during this job (not by another turtle, or on an earlier job). */
+  private ownSighting(b: { source?: string; observedAt: number }): boolean {
+    return b.source === this.v.turtleId && b.observedAt >= this.v.createdAt;
+  }
+
+  /** Inspect the four sides we haven't seen yet (moving in already looked ahead, up and down). */
+  private async lookAround(): Promise<void> {
+    const pos = this.m.pos();
+    for (let i = 0; i < 4; i++) {
+      const h = ((this.m.heading() + [1, 3, 2, 0][i]) % 4) as Heading;
+      const v = HEADING_VECTORS[h];
+      const cell = { x: pos.x + v.x, y: pos.y, z: pos.z + v.z };
+      if (this.m.known(cell)) continue;
+      await this.m.face(h);
+      await this.m.step('inspect');
     }
   }
 
@@ -260,28 +406,87 @@ export class JobRunner {
     const depot = this.depot;
     for (;;) {
       this.m.checkActive();
+      // Walk up close before asking for the dock, so whoever gets there first docks
+      // first, and nobody waits at the far end of a long tunnel.
+      const path = this.m.plan(depot.dock);
+      if (path && path.length > APPROACH && !this.mgr.spotOf(depot.id, this.v.turtleId)) {
+        this.mgr.setPhase(this.job, 'returning');
+        await this.m.moveTo(path[path.length - 1 - APPROACH]);
+        continue;
+      }
       const holder = this.mgr.tryLockDock(depot.id, this.v.turtleId);
       if (!holder) break;
       this.mgr.setPhase(this.job, 'waiting');
       let spot = this.mgr.spotOf(depot.id, this.v.turtleId);
       if (!spot) {
-        spot = this.mgr.claimSpot(depot.id, this.v.turtleId, this.m.pos());
-        if (spot) {
-          this.setNote(`dock in use by ${holder}: going to waiting spot ${fmt(spot)}`);
-          await this.m.moveTo(spot);
+        spot = this.mgr.claimSpot(depot.id, this.v.turtleId, this.m.pos()) ?? this.claimWaitCell(path);
+        if (spot && !eq(spot, this.m.pos())) {
+          this.setNote(`dock in use by ${holder}: going to wait at ${fmt(spot)}`);
+          try {
+            await this.m.moveTo(spot);
+          } catch (e) {
+            if (!(e instanceof JobError)) throw e;
+            this.mgr.releaseSpot(depot.id, this.v.turtleId);
+            spot = undefined;
+          }
         }
       }
-      this.setNote(`waiting for the dock (in use by ${holder})${spot ? ` at spot ${fmt(spot)}` : ''}`);
+      this.setNote(`waiting for the dock (in use by ${holder})${spot ? ` at ${fmt(spot)}` : ''}`);
       // Don't block others while we wait.
       const waiter = this.traffic.waitingFor(this.v.turtleId)[0];
-      if (waiter) await this.m.yieldTo(waiter);
+      if (waiter) {
+        await this.m.yieldTo(waiter);
+        this.mgr.releaseSpot(depot.id, this.v.turtleId);
+      }
       await sleep(400);
     }
     this.mgr.releaseSpot(depot.id, this.v.turtleId);
     this.setNote(undefined);
     this.mgr.setPhase(this.job, 'returning');
+    this.mgr.setDockRoute(depot.id, this.v.turtleId, [this.m.pos(), ...(this.m.plan(depot.dock) ?? [])]);
     await this.m.moveTo(depot.dock);
     this.visitedDock = true;
+  }
+
+  /**
+   * A place to wait near the dock when the depot has no free waiting spot: the cell of
+   * our own route closest to the dock that the dock holder doesn't use, else the nearest
+   * known-free cell off its route. Never next to the dock itself.
+   */
+  private claimWaitCell(path: Vec3[] | null): Vec3 | undefined {
+    const depot = this.depot;
+    const avoid = this.mgr.dockRoute(depot.id);
+    const holder = this.mgr.dockHolder(depot.id);
+    if (holder) for (const c of this.traffic.routeCells(holder)) avoid.add(c);
+    avoid.add(key(depot.dock));
+    const others = new Set(this.fleet.turtlePositions(this.v.world, this.v.dimension, this.v.turtleId).map(key));
+    const blocked = new Set((this.depotCells() ?? []).map(key));
+    const ok = (c: Vec3) =>
+      manhattan(c, depot.dock) >= 2 && !avoid.has(key(c)) && !others.has(key(c)) && !blocked.has(key(c)) && !this.mgr.cellClaimed(depot.id, this.v.turtleId, c);
+    const here = this.m.pos();
+    const route = [here, ...(path ?? [])];
+    for (let i = route.length - 1; i >= 0; i--) {
+      if (ok(route[i]) && this.mgr.claimCell(depot.id, this.v.turtleId, route[i])) return route[i];
+    }
+    // Our way in is the holder's way too: find a free side cell near the dock.
+    const r = 8;
+    const d = depot.dock;
+    const rows = this.fleet.queryMap({ world: this.v.world, dimension: this.v.dimension, x0: d.x - r, x1: d.x + r, z0: d.z - r, z1: d.z + r, y0: d.y - 4, y1: d.y + 4 }).blocks;
+    const free = new Set(rows.filter((b) => b.cell === 'empty').map(key));
+    free.add(key(here));
+    const queue: Vec3[] = [d];
+    const seen = new Set([key(d)]);
+    while (queue.length) {
+      const c = queue.shift()!;
+      if (!eq(c, d) && ok(c) && this.mgr.claimCell(depot.id, this.v.turtleId, c)) return c;
+      for (const v of NEIGHBOURS) {
+        const n = { x: c.x + v.x, y: c.y + v.y, z: c.z + v.z };
+        if (seen.has(key(n)) || !free.has(key(n))) continue;
+        seen.add(key(n));
+        queue.push(n);
+      }
+    }
+    return undefined;
   }
 
   private async service(final: boolean): Promise<void> {
@@ -304,7 +509,7 @@ export class JobRunner {
       // Don't stay parked on a dock other jobs still need: wait in our own tunnel.
       if (this.mgr.depotShared(depot.id, this.v.id)) {
         this.mgr.setPhase(this.job, 'traveling');
-        await this.m.moveTo(this.v.params.origin);
+        await this.m.moveTo(this.v.segments[0].origin);
       }
       this.cp.servicing = undefined;
       this.mgr.save(this.job);
@@ -363,7 +568,7 @@ export class JobRunner {
     const limit = typeof st.fuelLimit === 'number' ? st.fuelLimit : Infinity;
     const target = Math.min(this.v.policy.refuelTarget, limit);
     const depot = this.depot;
-    const resume = this.cp.resume?.pos ?? this.v.params.origin;
+    const resume = this.cp.resume?.pos ?? this.v.segments[0].origin;
     const need = final ? 0 : 2 * this.costBetween(depot.dock, resume) + this.v.policy.fuelReserve;
 
     // 1. Top up from the fuel chest, if the depot has one.
@@ -401,3 +606,21 @@ export class JobRunner {
     }
   }
 }
+
+/** Quarter turns needed to face `to` from `from`. */
+function turns(from: Heading, to: Heading): number {
+  const d = (to - from + 4) % 4;
+  return d === 3 ? 1 : d;
+}
+
+/** Steps from the dock at which a returning turtle stops to ask for it. */
+const APPROACH = 6;
+
+const NEIGHBOURS: Vec3[] = [
+  { x: 1, y: 0, z: 0 },
+  { x: -1, y: 0, z: 0 },
+  { x: 0, y: 0, z: 1 },
+  { x: 0, y: 0, z: -1 },
+  { x: 0, y: 1, z: 0 },
+  { x: 0, y: -1, z: 0 },
+];

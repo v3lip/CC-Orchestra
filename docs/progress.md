@@ -1,5 +1,46 @@
 # Progress notes
 
+## Modded ore names (2026-10-18)
+
+Ore filters were substring matches on the id, so they missed ores named the other way round (Immersive Engineering's `ore_copper`), and a custom filter typed like the in-game name ("Coal Ore") never matched; the custom field also split on spaces. Emendatus Enigmatica ores (`emendatusenigmatica:coal_ore`, …) did already match: the real map shows EE redstone being followed by vein following.
+
+- Matching is now word-based and case-insensitive (`oreMatches` in the protocol package): "Any ore" = any id containing the word `ore`/`ores` (plus ancient debris); a material (`coal`, `Coal Ore`) matches that ore from any mod; `mod:block` is exact. The custom field is comma separated.
+- Modded ores get the colour of the vanilla ore of the same material on the map.
+- Tests: ore matching unit tests (vanilla, EE, IE-style ids, look-alikes like `charcoal_ore` and `core_block`).
+
+## Turtles follow only their own veins (2026-10-18)
+
+In-game, miners went after ores other turtles had seen (vein following looked at every ore in the shared map, and other turtles' tunnels made them reachable). Now a turtle follows only ores it saw itself during the current job (map `source` = its id, observed after the job was created). Test: a diamond seen only by another turtle, reachable through that turtle's passage, is left alone while the turtle's own find is mined (the test fails with the old code).
+
+## Waiting near the dock without waiting spots (2026-10-18)
+
+In-game, turtles that found the dock busy waited at the far end of their tunnels until it was free, then started the long walk home. The depot had no waiting spots, and without one a turtle waited where it was.
+
+- A returning turtle now walks to ~6 steps from the dock before asking for it, so whoever gets there first docks first (before, a turtle far away could hold the dock for its whole walk back).
+- With no free waiting spot, it waits on its own route as close to the dock as possible, off the docking turtle's way in (or the nearest known-free cell off it). Configured waiting spots are still used first.
+- Test: two turtles with tunnels 14 blocks out and no waiting spots; the waiting one stays within 8 blocks of the dock (it waited 18 blocks out before the change).
+
+## Milestone 5, part 1 — branch mine, quarry, wall scanning, vein following (2026-10-18)
+
+**Implemented**
+
+- **Branch mine** (corridor ≤3×3 with 1-wide branches every S blocks, left/right/both) and **Quarry** (W×L box, D deep, top down in ≤3-row layers). Strategies are described as ordered tunnel sections; runner, estimate, conflict checks, chunk list and map drawing all work on sections. Quarries can be shared between turtles as lanes.
+- **Scan the walls** (job option): looks at every block around the work area (both side walls on every row, ceiling, floor, far end), so the map shows what's there.
+- **Follow veins** (job option): pick ores (Diamond, Emerald, Gold, Iron, Redstone, Lapis, Coal, Ancient debris, Any ore, or custom ids). When a matching ore is seen outside the work area within reach (default 6), the turtle mines the vein, looking around each block, then comes back. Only the matching ore is dug outside the work area. Max blocks per vein: 48 by default.
+- **Finds**: the job card lists the ores mined (◆ coal ore ×7 …) and how many came from veins. Map **◆ Ores** overlay: ore blocks within 8 levels of the current Y, labelled with the level difference.
+- Job form rewritten: Tunnel / Branch mine / Quarry tabs with their own default sizes, and a "Finding ores" section.
+
+**Verified — outside Minecraft only**
+
+`npm test`: new tests for branch mine geometry (corridor and branches cleared, stone between branches); quarry layers; wall scanning (both wall rows, ceiling, floor and the end of a 1×2 tunnel are mapped); a 4-block diamond vein beside a tunnel (mined, finds 4, vein blocks 4, surrounding stone intact, diamonds unloaded).
+Also run on a test instance from the dashboard: an 8×8×20 quarry with wall scanning and "Any ore" completed (coal ×7, iron ×3, 2 of them from veins).
+
+**Limitations**
+
+- Wall scanning only sees blocks next to the work area. Ores further in are found only by following veins from ones it saw.
+- Vein following runs between stations, so a long vein delays the tunnel; reach limits how far it strays.
+- Time and fuel for vein detours aren't in the estimate (a warning says so).
+
 ## Chunk borders: one unexplained drop, auto-resume (2026-10-18)
 
 In-game, a turtle with a Chunk Controller went offline once, exactly as it stepped from chunk (−15,−14) into the next one on a long trip home, and came back by itself a minute later. Minecraft logged nothing. My first conclusion (the Controller can't cross borders) was wrong: chunky turtles have worked 500+ blocks away, crossing many borders. The cause is still unknown; the user suspects the chunk load not keeping up on the long walk back.

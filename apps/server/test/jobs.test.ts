@@ -427,6 +427,129 @@ describe('auto-resume (opt-in)', () => {
   });
 });
 
+describe('strategies', () => {
+  it('branch mine: corridor plus side branches every 3 blocks, solid between them', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world, { fuel: 800 });
+    const job = server.jobs.createJob({
+      name: 'Branches',
+      strategy: 'branch',
+      params: { origin: { x: 2, y: 100, z: 0 }, heading: 1, width: 1, height: 2, length: 10, spacing: 3, branchLength: 3, sides: 'both' },
+      depotId: depot.id,
+      turtleId: t.turtleId!,
+      policy: {},
+    });
+    expect(job.segments.length).toBe(9); // 3 corridor parts (branches at 3, 6, 9) + 3 x 2 branches
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    for (let x = 2; x <= 11; x++) for (const y of [100, 101]) expect(world.get(x, y, 0)).toBeNull();
+    for (const x of [5, 8, 11]) for (const z of [-3, -2, -1, 1, 2, 3]) for (const y of [100, 101]) expect(world.get(x, y, z), `${x},${y},${z}`).toBeNull();
+    // Between branches the rock stays.
+    for (const x of [6, 7, 9, 10]) expect(world.get(x, 100, -1)?.name).toBe('minecraft:stone');
+    expect(world.spilled).toBe(0);
+  }, 90000);
+
+  it('quarry: clears a box top-down in layers and leaves the floor below', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world, { fuel: 800 });
+    const job = server.jobs.createJob({
+      name: 'Pit',
+      strategy: 'quarry',
+      params: { origin: { x: 2, y: 103, z: 0 }, heading: 1, width: 3, length: 3, depth: 4 },
+      depotId: depot.id,
+      turtleId: t.turtleId!,
+      policy: {},
+    });
+    expect(job.segments.map((s) => [s.origin.y, s.height])).toEqual([
+      [101, 3],
+      [100, 1],
+    ]);
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    for (let x = 2; x <= 4; x++) for (let z = 0; z <= 2; z++) for (let y = 100; y <= 103; y++) expect(world.get(x, y, z), `${x},${y},${z}`).toBeNull();
+    for (let x = 2; x <= 4; x++) expect(world.get(x, 99, 1)?.name).toBe('minecraft:stone');
+  }, 90000);
+});
+
+describe('wall scanning and vein following', () => {
+  it('scanWalls maps every block around the tunnel: both wall rows, ceiling, floor and the far end', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world, { fuel: 800 });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 6 }, { scanWalls: true }));
+    server.jobs.start(job.id);
+    expect((await finish(server, job.id)).status).toBe('completed');
+    const map = server.fleet.queryMap({ world: 'sim', dimension: 'minecraft:overworld', x0: 2, x1: 8, z0: -1, z1: 1, y0: 99, y1: 102 });
+    const at = (x: number, y: number, z: number) => map.blocks.find((c) => c.x === x && c.y === y && c.z === z)?.block;
+    for (let x = 2; x <= 7; x++) {
+      for (const y of [100, 101]) for (const z of [-1, 1]) expect(at(x, y, z), `wall ${x},${y},${z}`).toBe('minecraft:stone');
+      expect(at(x, 102, 0), `ceiling ${x}`).toBe('minecraft:stone');
+      expect(at(x, 99, 0), `floor ${x}`).toBe('minecraft:stone');
+    }
+    for (const y of [100, 101]) expect(at(8, y, 0), `end ${y}`).toBe('minecraft:stone');
+    expect(allClear(world, 1, 2, 6)).toBe('clear');
+  });
+
+  it('follows a diamond vein out of the tunnel, mines only the ore, and comes back', async () => {
+    const { server, world, depot } = await setup();
+    const vein = [
+      [5, 101, -1],
+      [5, 102, -1],
+      [5, 101, -2],
+      [6, 101, -2],
+    ];
+    for (const [x, y, z] of vein) world.set(x, y, z, { name: 'minecraft:diamond_ore' });
+    const t = await sim(server, world, { fuel: 800 });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 8 }, { scanWalls: true, veins: { ores: ['diamond_ore'], maxBlocks: 16, reach: 4 } }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    for (const [x, y, z] of vein) expect(world.get(x, y, z), `${x},${y},${z}`).toBeNull();
+    expect(done.progress.finds?.['minecraft:diamond_ore']).toBe(4);
+    expect(done.progress.veinBlocks).toBe(4);
+    // Nothing but the ore was dug outside the tunnel.
+    for (const [x, y, z] of [
+      [4, 101, -1],
+      [6, 101, -1],
+      [5, 101, -3],
+      [7, 101, -2],
+      [5, 100, -1],
+    ])
+      expect(world.get(x, y, z)?.name, `${x},${y},${z}`).toBe('minecraft:stone');
+    expect(allClear(world, 1, 2, 8)).toBe('clear');
+    expect(world.inventories.get('-1,100,0')!.some((s) => s?.name === 'minecraft:diamond' && s.count === 4)).toBe(true);
+  }, 90000);
+});
+
+describe('vein ownership', () => {
+  it('ignores ores reported by other turtles; only follows what its own turtle saw', async () => {
+    const { server, world, depot } = await setup();
+    // Another turtle's passage beside the tunnel, with a diamond only that turtle saw.
+    for (const z of [-1, -2, -3]) world.set(6, 100, z, null);
+    world.set(5, 100, -3, { name: 'minecraft:diamond_ore' });
+    server.fleet.importObservations(
+      'sim',
+      'minecraft:overworld',
+      [{ x: 6, y: 100, z: -1 }, { x: 6, y: 100, z: -2 }, { x: 6, y: 100, z: -3 }, { x: 5, y: 100, z: -3, name: 'minecraft:diamond_ore' }],
+      't_someone_else',
+    );
+    // Next to the tunnel: its own scan finds this one.
+    world.set(3, 101, -1, { name: 'minecraft:diamond_ore' });
+    const t = await sim(server, world, { fuel: 800 });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 6 }, { scanWalls: true, veins: { ores: ['diamond_ore'], maxBlocks: 16, reach: 4 } }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.status).toBe('completed');
+    expect(world.get(3, 101, -1), 'own find').toBeNull();
+    expect(world.get(5, 100, -3)?.name, "another turtle's find").toBe('minecraft:diamond_ore');
+    expect(done.progress.veinBlocks).toBe(1);
+  }, 90000);
+});
+
 describe('agent version gate', () => {
   it('jobs need agent 0.3.0+ (verified unloading, dig protection)', async () => {
     const { agentSupportsJobs } = await import('../src/jobs/runner');

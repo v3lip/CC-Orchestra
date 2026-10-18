@@ -32,6 +32,9 @@ interface FleetState {
   /** Show the chunk grid and which chunks turtles keep loaded. */
   showChunks: boolean;
   setShowChunks(v: boolean): void;
+  /** Mark ores seen near the current Y level. */
+  showOres: boolean;
+  setShowOres(v: boolean): void;
   /** Chunks the operator marked as force-loaded (FTB Chunks etc.). */
   forcedChunks: ForcedChunk[];
   /** Map clicks toggle "force-loaded" on chunks instead of selecting turtles. */
@@ -75,6 +78,8 @@ export const useFleet = create<FleetState>((set, get) => ({
   jobs: {},
   depots: {},
   rightTab: 'turtle',
+  showOres: true,
+  setShowOres: (showOres) => set({ showOres }),
   showChunks: true,
   setShowChunks: (showChunks) => set({ showChunks, ...(showChunks ? {} : { markChunks: false }) }),
   forcedChunks: [],
@@ -299,7 +304,8 @@ class MapCache {
     const cz0 = Math.floor(z0 / CHUNK);
     const cz1 = Math.floor(z1 / CHUNK);
     if ((cx1 - cx0 + 1) * (cz1 - cz0 + 1) > 4096) return; // zoomed out too far to load more
-    for (const band of new Set([Math.floor(y / BAND), Math.floor((y - 1) / BAND)])) {
+    // The current level, the floor hint below it, and ±8 levels for the ore overlay.
+    for (const band of new Set([Math.floor(y / BAND), Math.floor((y - 8) / BAND), Math.floor((y + 8) / BAND)])) {
       let mx0 = Infinity, mx1 = -Infinity, mz0 = Infinity, mz1 = -Infinity;
       const keys: string[] = [];
       for (let cx = cx0; cx <= cx1; cx++)

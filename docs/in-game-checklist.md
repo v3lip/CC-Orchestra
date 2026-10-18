@@ -26,10 +26,17 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 20. [ ] **Waiting spots:** Depots → Edit → drive a turtle to an open cell near the dock (off the main path) → "+ position" → Save. Repeat for a second spot. They show as dashed **W** squares on the map.
 21. [ ] **Shared tunnel:** line up 2–3 turtles side by side facing the rock. Select them → Jobs → New tunnel → **Share one tunnel (lanes)**, width ≥ number of turtles. The preview shows one lane in front of each turtle. **Create & start**. A campaign card appears with combined progress.
-22. [ ] When two turtles need the dock at once, one goes to a waiting spot (job note: *waiting for the dock … at spot …*) and docks when the other has left.
+22. [ ] When two turtles need the dock at once, one goes to a waiting spot (job note: *waiting for the dock … at …*) and docks when the other has left. **Without waiting spots** it should still come back and wait a few blocks from the dock, out of the other turtle's way, not at the end of its tunnel.
 23. [ ] **Pause all / Resume all** on the campaign card. Also select two of the turtles: the "Jobs of N selected turtles" bar pauses/resumes just those.
 24. [ ] **Go to:** select one turtle, Control → **Go to…**, enter a nearby coordinate in known space. It drives there without digging. Pressing W during the trip stops it.
 25. [ ] **Head-on:** send two turtles towards each other through a 1-wide passage with a side alcove they have both seen (walked past or inspected). One steps into the alcove (activity log: *steps aside*), and both arrive. With no alcove, a *block each other* error appears within ~30 s instead of them pushing forever.
+
+### Milestone 5: branch mine, quarry, ore scanning
+
+26. [ ] **Branch mine:** Jobs → New job → **Branch mine**, length 24, spacing 4, branch length 6, both sides. The map preview shows the corridor and branches. Run it: branches are 1 wide, with stone left between them.
+27. [ ] **Quarry:** New job → **Quarry** 5×5, 6 deep, in front of the turtle (on flat ground). It clears top down and goes back to unload when full.
+28. [ ] **Scan the walls:** tick it on a short tunnel. Afterwards the map, at the tunnel's level and one above, shows the walls on both sides as observed blocks (not unknown).
+29. [ ] **Follow veins:** tick **Diamond** (or **Any ore** for a quick test) plus Scan the walls, and tunnel at diamond level (Y 5–12 on 1.16). When it sees a matching ore beside the tunnel, the job note says *following a vein of …*; it mines just the ore blocks and returns to the tunnel. The job card shows ◆ finds, and **◆ Ores** on the map marks ores it has seen but not mined.
 
 ### Chunky turtles (Chunk Controller)
 

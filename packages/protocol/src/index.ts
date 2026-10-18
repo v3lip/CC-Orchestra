@@ -542,6 +542,46 @@ export const TunnelParams = z.object({
 });
 export type TunnelParams = z.infer<typeof TunnelParams>;
 
+/**
+ * Branch mine ("strip mining"): a main corridor (width x height x length) along
+ * `heading`, with side branches every `spacing` blocks along it (spacing 3 leaves two
+ * solid blocks between branches). Branches are 1 wide, as high as the corridor, and
+ * `branchLength` long, on the left, right or both sides.
+ */
+export const BranchParams = z.object({
+  origin: Vec3,
+  heading: Heading,
+  width: int().min(1).max(3),
+  height: int().min(1).max(3),
+  length: int().min(1).max(512),
+  spacing: int().min(2).max(16),
+  branchLength: int().min(1).max(64),
+  sides: z.enum(['both', 'left', 'right']),
+});
+export type BranchParams = z.infer<typeof BranchParams>;
+
+/**
+ * Quarry: clear the box `width` (to the right) x `length` (along heading) x `depth`
+ * (downwards). The origin is the top-left cell of the box's top layer, looking along
+ * the heading. Mined top-down in layers of up to 3 blocks.
+ */
+export const QuarryParams = z.object({
+  origin: Vec3,
+  heading: Heading,
+  width: int().min(1).max(64),
+  length: int().min(1).max(64),
+  depth: int().min(1).max(256),
+});
+export type QuarryParams = z.infer<typeof QuarryParams>;
+
+export const StrategyInput = z.discriminatedUnion('strategy', [
+  z.object({ strategy: z.literal('tunnel'), params: TunnelParams }),
+  z.object({ strategy: z.literal('branch'), params: BranchParams }),
+  z.object({ strategy: z.literal('quarry'), params: QuarryParams }),
+]);
+export type StrategyInput = z.infer<typeof StrategyInput>;
+export type Strategy = StrategyInput['strategy'];
+
 export const JobPolicy = z.object({
   /** Return to unload when this many (or fewer) unreserved slots are free. */
   minFreeSlots: int().min(0).max(14).default(1),
@@ -559,19 +599,38 @@ export const JobPolicy = z.object({
    * back (within 15 min, at most 3 times per hour, only with a known pose and no hold).
    */
   autoResume: z.boolean().default(false),
+  /**
+   * Look left and right at the edge of the work area as it goes, so the walls get
+   * mapped (and ores in them seen). Turning costs no fuel but takes time.
+   */
+  scanWalls: z.boolean().default(false),
+  /**
+   * Follow ore veins: when a block whose id contains one of `ores` is seen near the work
+   * area, mine the connected vein before continuing. Only matching ore blocks are ever
+   * dug outside the work area. Empty = off.
+   */
+  veins: z
+    .object({
+      ores: z.array(z.string().min(2).max(64)).max(16).default([]),
+      /** Max blocks mined per vein. */
+      maxBlocks: int().min(1).max(256).default(48),
+      /** How far (blocks) outside the work area a vein may be followed. */
+      reach: int().min(1).max(16).default(6),
+    })
+    .default({}),
 });
 export type JobPolicy = z.infer<typeof JobPolicy>;
 
-export const JobInput = z.object({
-  name: z.string().min(1).max(60),
-  strategy: z.literal('tunnel'),
-  params: TunnelParams,
-  depotId: z.string(),
-  turtleId: z.string(),
-  policy: JobPolicy.partial().default({}),
-  /** Boxes that must never be dug, even inside the job volume. */
-  exclusions: z.array(Box).max(32).default([]),
-});
+export const JobInput = z
+  .object({
+    name: z.string().min(1).max(60),
+    depotId: z.string(),
+    turtleId: z.string(),
+    policy: JobPolicy.partial().default({}),
+    /** Boxes that must never be dug, even inside the job volume. */
+    exclusions: z.array(Box).max(32).default([]),
+  })
+  .and(StrategyInput);
 export type JobInput = z.input<typeof JobInput>;
 
 /**
@@ -585,8 +644,12 @@ export const CampaignInput = z
     depotId: z.string(),
     policy: JobPolicy.partial().default({}),
     start: z.boolean().default(false),
-    jobs: z.array(z.object({ turtleId: z.string(), params: TunnelParams })).min(1).max(64).optional(),
-    split: z.object({ params: TunnelParams, turtleIds: z.array(z.string()).min(1).max(16) }).optional(),
+    jobs: z.array(z.object({ turtleId: z.string() }).and(StrategyInput)).min(1).max(64).optional(),
+    /** One tunnel or quarry split side by side into one lane per turtle. */
+    split: z
+      .object({ turtleIds: z.array(z.string()).min(1).max(16) })
+      .and(z.discriminatedUnion('strategy', [z.object({ strategy: z.literal('tunnel'), params: TunnelParams }), z.object({ strategy: z.literal('quarry'), params: QuarryParams })]))
+      .optional(),
   })
   .refine((c) => !!c.jobs !== !!c.split, 'give either jobs or split');
 export type CampaignInput = z.input<typeof CampaignInput>;
@@ -627,8 +690,10 @@ export interface JobEstimate {
 export interface JobView {
   id: string;
   name: string;
-  strategy: 'tunnel';
-  params: TunnelParams;
+  strategy: Strategy;
+  params: TunnelParams | BranchParams | QuarryParams;
+  /** The work volume as plain tunnel sections, in mining order (see segmentsFor). */
+  segments: TunnelParams[];
   policy: JobPolicy;
   exclusions: Box[];
   world: string;
@@ -646,7 +711,18 @@ export interface JobView {
   /** Live detail for the operator, e.g. what the turtle is waiting for. */
   note?: string;
   error?: { code: string; message: string; at: number };
-  progress: { unitsDone: number; unitsTotal: number; cellsCleared: number; cellsSkipped: number; trips: number; itemsUnloaded: number };
+  progress: {
+    unitsDone: number;
+    unitsTotal: number;
+    cellsCleared: number;
+    cellsSkipped: number;
+    trips: number;
+    itemsUnloaded: number;
+    /** Ore blocks mined, by block id. */
+    finds?: Record<string, number>;
+    /** Ore blocks mined by following veins outside the work area. */
+    veinBlocks?: number;
+  };
   estimate: JobEstimate;
   /** Next cells on the turtle's planned route (for the map). */
   route?: Vec3[];
@@ -711,3 +787,109 @@ export function parseTurtleMessage(raw: string): { ok: true; msg: TurtleToServer
   }
   return { ok: true, msg: r.data };
 }
+
+// ---------------------------------------------------------------- strategies -> segments
+
+/**
+ * Every strategy is expressed as an ordered list of plain tunnel sections. Mining goes
+ * section by section, slice by slice; a "unit" (the checkpoint granularity) is one slice
+ * of one section.
+ */
+export function segmentsFor(s: StrategyInput): TunnelParams[] {
+  if (s.strategy === 'tunnel') return [s.params];
+  if (s.strategy === 'quarry') {
+    const p = s.params;
+    const out: TunnelParams[] = [];
+    let top = p.origin.y;
+    let left = p.depth;
+    while (left > 0) {
+      const h = Math.min(3, left);
+      out.push({ origin: { x: p.origin.x, y: top - h + 1, z: p.origin.z }, heading: p.heading, width: p.width, height: h, length: p.length });
+      top -= h;
+      left -= h;
+    }
+    return out;
+  }
+  const p = s.params;
+  const f = HEADING_VECTORS[p.heading];
+  const r = HEADING_VECTORS[(p.heading + 1) % 4];
+  const cell = (d: number, w: number) => ({ x: p.origin.x + f.x * d + r.x * w, y: p.origin.y, z: p.origin.z + f.z * d + r.z * w });
+  const out: TunnelParams[] = [];
+  let start = 0;
+  for (let d = p.spacing; d < p.length; d += p.spacing) {
+    out.push({ origin: cell(start, 0), heading: p.heading, width: p.width, height: p.height, length: d - start + 1 });
+    if (p.sides !== 'right') {
+      const c = cell(d, 0);
+      const l = HEADING_VECTORS[(p.heading + 3) % 4];
+      out.push({ origin: { x: c.x + l.x, y: c.y, z: c.z + l.z }, heading: ((p.heading + 3) % 4) as Heading, width: 1, height: p.height, length: p.branchLength });
+    }
+    if (p.sides !== 'left') {
+      const c = cell(d, p.width - 1);
+      out.push({ origin: { x: c.x + r.x, y: c.y, z: c.z + r.z }, heading: ((p.heading + 1) % 4) as Heading, width: 1, height: p.height, length: p.branchLength });
+    }
+    start = d + 1;
+  }
+  if (start < p.length) out.push({ origin: cell(start, 0), heading: p.heading, width: p.width, height: p.height, length: p.length - start });
+  return out;
+}
+
+/** Axis-aligned bounding box of a tunnel section. */
+export function sectionBox(p: TunnelParams): Box {
+  const f = HEADING_VECTORS[p.heading];
+  const r = HEADING_VECTORS[(p.heading + 1) % 4];
+  const end = { x: p.origin.x + f.x * (p.length - 1) + r.x * (p.width - 1), z: p.origin.z + f.z * (p.length - 1) + r.z * (p.width - 1) };
+  return {
+    min: { x: Math.min(p.origin.x, end.x), y: p.origin.y, z: Math.min(p.origin.z, end.z) },
+    max: { x: Math.max(p.origin.x, end.x), y: p.origin.y + p.height - 1, z: Math.max(p.origin.z, end.z) },
+  };
+}
+
+/** Does a block id look like an ore (vanilla or modded)? */
+export function isOreBlock(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const w = idWords(name);
+  return w.includes('ore') || w.includes('ores') || name.toLowerCase().endsWith(':ancient_debris');
+}
+
+/** Words of a block id's path: "emendatusenigmatica:coal_ore" -> ["coal", "ore"]. */
+function idWords(id: string): string[] {
+  const path = id.toLowerCase().split(':').pop() ?? '';
+  return path.split(/[/_\-.\s]+/).filter(Boolean);
+}
+
+const ANY_ORE = new Set(['_ore', 'ore', 'ores', 'any', 'any_ore', '*']);
+
+/**
+ * Does a vein filter match this block? Case-insensitive and mod-agnostic:
+ * - "any" / "_ore": any ore block (an id with the word "ore" or "ores", or ancient debris);
+ * - "coal", "coal_ore", "Coal Ore": an ore whose id has the word "coal"
+ *   (minecraft:coal_ore, emendatusenigmatica:coal_ore, x:deepslate_coal_ore, x:ore_coal);
+ * - "mod:block": that exact block id;
+ * - any other word: a block whose id path is exactly that ("obsidian").
+ */
+export function oreMatches(filter: string, name: string | null | undefined): boolean {
+  if (!name) return false;
+  const f = filter.trim().toLowerCase().replace(/\s+/g, '_');
+  const id = name.toLowerCase();
+  if (!f) return false;
+  if (ANY_ORE.has(f)) return isOreBlock(id);
+  if (f.includes(':')) return id === f;
+  if (!isOreBlock(id)) return id.split(':').pop() === f;
+  const want = idWords(f).filter((w) => w !== 'ore' && w !== 'ores');
+  if (!want.length) return true;
+  const have = new Set(idWords(id));
+  return want.every((w) => have.has(w));
+}
+
+/** Common ore filters for vein following (see oreMatches). */
+export const ORE_PRESETS: { label: string; match: string }[] = [
+  { label: 'Diamond', match: 'diamond_ore' },
+  { label: 'Emerald', match: 'emerald_ore' },
+  { label: 'Gold', match: 'gold_ore' },
+  { label: 'Iron', match: 'iron_ore' },
+  { label: 'Redstone', match: 'redstone_ore' },
+  { label: 'Lapis', match: 'lapis_ore' },
+  { label: 'Coal', match: 'coal_ore' },
+  { label: 'Ancient debris', match: 'ancient_debris' },
+  { label: 'Any ore', match: '_ore' },
+];

@@ -13,6 +13,7 @@ import {
   type JobPhase,
   type JobStatus,
   type JobView,
+  type StrategyInput,
   type TunnelParams,
   type TurtleView,
   type Vec3,
@@ -21,11 +22,13 @@ import {
   JobInput as JobSchema,
   JobPolicy,
   hasChunkLoader,
+  sectionBox,
+  segmentsFor,
 } from '@ccfleet/protocol';
 import type { Db } from '../db';
 import { ApiError, type Fleet } from '../fleet';
 import { newId, now } from '../util';
-import { boxesOverlap, chunkOf, eq, fmt, jobChunks, key, lanes, manhattan, splitTunnel, tunnelBox } from './geometry';
+import { boxesOverlap, chunkOf, eq, fmt, inBox, jobChunks, key, lanes, manhattan, splitTunnel } from './geometry';
 import { JobRunner } from './runner';
 import { Interrupt, JobError, Mover } from './mover';
 import { Traffic } from './traffic';
@@ -51,6 +54,8 @@ export class JobManager {
   private dockLocks = new Map<string, string>();
   /** depotId -> (spot key -> turtle) */
   private spotClaims = new Map<string, Map<string, string>>();
+  /** Cells the current dock holder came in on, so waiting turtles stay off them. */
+  private dockRoutes = new Map<string, Set<string>>();
   /** Jobs paused because their turtle dropped, with auto-resume on: when it dropped. */
   private droppedAt = new Map<string, number>();
   /** Recent automatic resumes per job (for the 3-per-hour limit). */
@@ -134,6 +139,7 @@ export class JobManager {
         rec.view.pauseReason = 'backend restarted';
       }
       rec.view.route = undefined;
+      rec.view.segments ??= segmentsFor({ strategy: 'tunnel', params: rec.view.params as TunnelParams });
       this.jobs.set(rec.view.id, rec);
     }
   }
@@ -237,6 +243,36 @@ export class JobManager {
     return free[0];
   }
 
+  /** Claim a specific cell as this turtle's waiting place (when the depot has no free spot). */
+  claimCell(depotId: string, turtleId: string, cell: Vec3): boolean {
+    const claims = this.spotClaims.get(depotId) ?? new Map<string, string>();
+    this.spotClaims.set(depotId, claims);
+    const owner = claims.get(key(cell));
+    if (owner && owner !== turtleId) return false;
+    this.releaseSpot(depotId, turtleId);
+    claims.set(key(cell), turtleId);
+    return true;
+  }
+
+  /** Is this cell claimed as a waiting place by another turtle? */
+  cellClaimed(depotId: string, turtleId: string, cell: Vec3): boolean {
+    const owner = this.spotClaims.get(depotId)?.get(key(cell));
+    return !!owner && owner !== turtleId;
+  }
+
+  /** The way the dock holder came in (and will most likely leave). */
+  setDockRoute(depotId: string, turtleId: string, cells: Vec3[]): void {
+    if (this.dockLocks.get(depotId) === turtleId) this.dockRoutes.set(depotId, new Set(cells.map(key)));
+  }
+
+  dockHolder(depotId: string): string | undefined {
+    return this.dockLocks.get(depotId);
+  }
+
+  dockRoute(depotId: string): Set<string> {
+    return new Set(this.dockRoutes.get(depotId) ?? []);
+  }
+
   releaseSpot(depotId: string, turtleId: string): void {
     const claims = this.spotClaims.get(depotId);
     if (!claims) return;
@@ -251,6 +287,7 @@ export class JobManager {
   releaseDock(depotId: string, turtleId: string): void {
     if (this.dockLocks.get(depotId) === turtleId) {
       this.dockLocks.delete(depotId);
+      this.dockRoutes.delete(depotId);
       this.broadcastDepot(depotId);
     }
   }
@@ -326,23 +363,36 @@ export class JobManager {
     const j = JobSchema.parse(input);
     const depot = this.depots.get(j.depotId);
     if (!depot) throw new ApiError(400, 'unknown depot');
-    const p = j.params;
-    const nl = lanes(p.height).length;
-    const cells = p.width * p.height * p.length;
-    const toSite = manhattan(depot.dock, p.origin) + 4;
-    const perSlice = p.width * nl + 3 * Math.max(0, nl - 1);
+    const segs = segmentsFor(j);
+    const policy = JobPolicy.parse(j.policy);
+    let cells = 0;
+    let mineMoves = 0;
+    let turns = 0;
+    for (const s of segs) {
+      const nl = lanes(s.height).length;
+      cells += s.width * s.height * s.length;
+      mineMoves += s.length * (s.width * nl + 3 * Math.max(0, nl - 1));
+      // Wall scans: at each column, up and back down through the other rows of the
+      // lane (to see the ceiling, floor and side walls); turns and inspects at the edges.
+      if (policy.scanWalls) {
+        const rows = Math.min(3, s.height);
+        mineMoves += s.length * nl * s.width * 2 * (rows - 1);
+        turns += s.length * nl * Math.min(2, s.width) * rows * 3;
+      }
+    }
+    const first = segs[0];
+    const span = Math.max(...segs.map((s) => manhattan(s.origin, first.origin) + s.length));
+    const toSite = manhattan(depot.dock, first.origin) + 4;
     const blocksPerTrip = 640;
     const trips = Math.max(1, Math.ceil(cells / blocksPerTrip));
-    const moves = p.length * perSlice + 2 * toSite + trips * 2 * (toSite + Math.ceil(p.length / 2));
-    const seconds = Math.round((moves + cells) * 0.45);
+    const moves = mineMoves + 2 * toSite + trips * 2 * (toSite + Math.ceil(span / 2));
+    const seconds = Math.round((moves + cells + turns) * 0.45);
     const warnings: string[] = [];
-    const box = tunnelBox(p);
-    for (const c of [depot.dock]) {
-      if (c.x >= box.min.x && c.x <= box.max.x && c.y >= box.min.y && c.y <= box.max.y && c.z >= box.min.z && c.z <= box.max.z) warnings.push('The dock is inside the tunnel volume.');
-    }
-    if (toSite > 64) warnings.push(`The tunnel starts ${toSite} blocks from the dock; long trips use a lot of fuel.`);
+    if (segs.some((s) => inBox(sectionBox(s), depot.dock))) warnings.push('The dock is inside the work area.');
+    if (toSite > 64) warnings.push(`The work area starts ${toSite} blocks from the dock; long trips use a lot of fuel.`);
+    if (policy.veins.ores.length) warnings.push(`Vein following (${policy.veins.ores.join(', ')}) adds time and fuel that isn't in this estimate.`);
     const turtle = this.fleet.getTurtle(j.turtleId);
-    const chunks: ChunkNeed[] = jobChunks(p, depot.dock).map((c) => ({ ...c, forced: this.isForced(depot.world, depot.dimension, c.cx, c.cz) }));
+    const chunks: ChunkNeed[] = jobChunks(segs, depot.dock).map((c) => ({ ...c, forced: this.isForced(depot.world, depot.dimension, c.cx, c.cz) }));
     if (turtle?.state && !hasChunkLoader(turtle.state.upgrades)) {
       warnings.push(`${turtle.name} has no Chunk Controller: it only keeps working while a player is near (its chunk must stay loaded).`);
     }
@@ -355,7 +405,7 @@ export class JobManager {
         seconds,
         trips,
         cells,
-        note: 'Estimate: assumes mostly solid rock, ~640 blocks per trip and no detours. Real numbers vary.',
+        note: `Estimate: assumes mostly solid rock, ~640 blocks per trip and no detours${policy.scanWalls ? '; includes wall scanning' : ''}. Real numbers vary.`,
       },
       warnings,
       chunks,
@@ -364,7 +414,7 @@ export class JobManager {
 
   createJob(input: unknown): JobView {
     const j = JobSchema.parse(input);
-    this.validateNew([{ turtleId: j.turtleId, params: j.params, name: j.name }], j.depotId);
+    this.validateNew([{ turtleId: j.turtleId, segments: segmentsFor(j), name: j.name }], j.depotId);
     return this.insertJob(input);
   }
 
@@ -372,7 +422,7 @@ export class JobManager {
    * Check a set of new tunnels before creating any: known depot and turtles, no turtle
    * with an unfinished job or used twice, no overlap with each other or unfinished jobs.
    */
-  private validateNew(specs: { turtleId: string; params: TunnelParams; name: string }[], depotId: string): void {
+  private validateNew(specs: { turtleId: string; segments: TunnelParams[]; name: string }[], depotId: string): void {
     const depot = this.depots.get(depotId);
     if (!depot) throw new ApiError(400, 'unknown depot');
     const seen = new Set<string>();
@@ -384,13 +434,13 @@ export class JobManager {
       if (this.activeJobFor(s.turtleId)) throw new ApiError(409, `${turtle.name} already has an unfinished job`);
       if (this.tasks.has(s.turtleId)) throw new ApiError(409, `${turtle.name} is busy with a go-to task`);
       // Two jobs digging the same cells would fight over them (and their turtles would collide).
-      const box = tunnelBox(s.params);
+      const overlaps = (a: TunnelParams[], b: TunnelParams[]) => a.some((x) => b.some((y) => boxesOverlap(sectionBox(x), sectionBox(y))));
       for (const o of this.jobs.values()) {
         if (!ACTIVE.has(o.view.status) || o.view.world !== depot.world || o.view.dimension !== depot.dimension) continue;
-        if (boxesOverlap(box, tunnelBox(o.view.params))) throw new ApiError(409, `${s.name}: the tunnel overlaps job "${o.view.name}". Move it or finish/cancel that job first.`);
+        if (overlaps(s.segments, o.view.segments)) throw new ApiError(409, `${s.name}: the work area overlaps job "${o.view.name}". Move it or finish/cancel that job first.`);
       }
       specs.slice(i + 1).forEach((o) => {
-        if (boxesOverlap(box, tunnelBox(o.params))) throw new ApiError(409, `${s.name} and ${o.name} would dig the same cells`);
+        if (overlaps(s.segments, o.segments)) throw new ApiError(409, `${s.name} and ${o.name} would dig the same cells`);
       });
     });
   }
@@ -400,13 +450,15 @@ export class JobManager {
     const depot = this.depots.get(j.depotId)!;
     const turtle = this.fleet.getTurtle(j.turtleId)!;
     const { estimate } = this.estimate(input);
+    const segments = segmentsFor(j);
     const t = now();
     const rec: JobRec = {
       view: {
         id: newId('j'),
         name: j.name,
-        strategy: 'tunnel',
+        strategy: j.strategy,
         params: j.params,
+        segments,
         policy: JobPolicy.parse(j.policy),
         exclusions: j.exclusions,
         world: depot.world,
@@ -416,7 +468,7 @@ export class JobManager {
         ...extra,
         status: 'ready',
         phase: 'idle',
-        progress: { unitsDone: 0, unitsTotal: j.params.length, cellsCleared: 0, cellsSkipped: 0, trips: 0, itemsUnloaded: 0 },
+        progress: { unitsDone: 0, unitsTotal: segments.reduce((n, s) => n + s.length, 0), cellsCleared: 0, cellsSkipped: 0, trips: 0, itemsUnloaded: 0, finds: {}, veinBlocks: 0 },
         estimate,
         createdAt: t,
         updatedAt: t,
@@ -547,20 +599,31 @@ export class JobManager {
   createCampaign(input: unknown): { campaignId: string; jobs: JobView[]; skipped: string[] } {
     const c = CampaignSchema.parse(input);
     const campaignId = newId('k');
-    let specs: { turtleId: string; params: TunnelParams; name: string; lane?: { index: number; count: number } }[];
+    type Spec = { turtleId: string; strategy: StrategyInput; segments: TunnelParams[]; name: string; lane?: { index: number; count: number } };
+    let specs: Spec[];
     let skipped: string[] = [];
     const nameOf = (id: string) => this.fleet.getTurtle(id)?.name ?? id;
     if (c.split) {
-      const turtles = c.split.turtleIds.map((id) => ({ id, pos: this.fleet.getTurtle(id)?.state?.pose.pos }));
-      const s = splitTunnel(c.split.params, turtles);
-      skipped = s.skipped.map(nameOf);
-      specs = s.lanes.map((l) => ({ turtleId: l.turtleId, params: l.params, name: `${c.name} · lane ${l.index + 1}/${s.lanes.length} · ${nameOf(l.turtleId)}`, lane: { index: l.index, count: s.lanes.length } }));
+      const sp = c.split;
+      const turtles = sp.turtleIds.map((id) => ({ id, pos: this.fleet.getTurtle(id)?.state?.pose.pos }));
+      // Lanes split the width; for a quarry each lane keeps the full depth.
+      const asTunnel: TunnelParams = sp.strategy === 'tunnel' ? sp.params : { origin: sp.params.origin, heading: sp.params.heading, width: sp.params.width, height: 1, length: sp.params.length };
+      const r = splitTunnel(asTunnel, turtles);
+      skipped = r.skipped.map(nameOf);
+      specs = r.lanes.map((l) => {
+        const strategy: StrategyInput =
+          sp.strategy === 'tunnel' ? { strategy: 'tunnel', params: l.params } : { strategy: 'quarry', params: { ...sp.params, origin: l.params.origin, width: l.params.width } };
+        return { turtleId: l.turtleId, strategy, segments: segmentsFor(strategy), name: `${c.name} · lane ${l.index + 1}/${r.lanes.length} · ${nameOf(l.turtleId)}`, lane: { index: l.index, count: r.lanes.length } };
+      });
     } else {
-      specs = c.jobs!.map((j) => ({ turtleId: j.turtleId, params: j.params, name: c.jobs!.length > 1 ? `${c.name} · ${nameOf(j.turtleId)}` : c.name }));
+      specs = c.jobs!.map((j) => {
+        const strategy = { strategy: j.strategy, params: j.params } as StrategyInput;
+        return { turtleId: j.turtleId, strategy, segments: segmentsFor(strategy), name: c.jobs!.length > 1 ? `${c.name} · ${nameOf(j.turtleId)}` : c.name };
+      });
     }
     this.validateNew(specs, c.depotId);
     const jobs = specs.map((s) =>
-      this.insertJob({ name: s.name, strategy: 'tunnel', params: s.params, depotId: c.depotId, turtleId: s.turtleId, policy: c.policy }, { campaignId, campaignName: c.name, lane: s.lane }),
+      this.insertJob({ name: s.name, ...s.strategy, depotId: c.depotId, turtleId: s.turtleId, policy: c.policy }, { campaignId, campaignName: c.name, lane: s.lane }),
     );
     this.log('info', `Campaign "${c.name}": ${jobs.length} job(s)${skipped.length ? `; skipped ${skipped.join(', ')} (more turtles than columns)` : ''}`);
     if (c.start) for (const j of jobs) this.start(j.id);

@@ -3,7 +3,7 @@ import type { JobView } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { useFleet } from '../lib/store';
 import { JobForm } from './JobForm';
-import { isChunky } from '../lib/status';
+import { isChunky, shortItem } from '../lib/status';
 
 const STATUS_TONE: Record<JobView['status'], string> = {
   ready: 'bg-slate-700 text-slate-200',
@@ -49,7 +49,7 @@ export function JobsPanel() {
       <div className="flex items-center justify-between">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Jobs</h3>
         <button onClick={() => setCreating(true)} className="rounded bg-cyan-700/40 px-2 py-0.5 text-cyan-200 hover:bg-cyan-600/50">
-          + New tunnel
+          + New job
         </button>
       </div>
       {selectedWithJobs.length > 0 && (
@@ -137,7 +137,7 @@ function JobCard({ job }: { job: JobView }) {
         <button className="hover:underline" onClick={() => focus(job.turtleId, true)}>
           {turtle?.name ?? 'removed turtle'}
         </button>{' '}
-        · tunnel {job.params.width}×{job.params.height}×{job.params.length} · depot {depot?.name ?? '?'}
+        · {describe(job)} · depot {depot?.name ?? '?'}
       </div>
       <div className="mt-1.5 h-1.5 overflow-hidden rounded bg-slate-800">
         <div className="h-full bg-cyan-500" style={{ width: `${pct}%` }} />
@@ -148,10 +148,22 @@ function JobCard({ job }: { job: JobView }) {
         </span>
         <span>{p.cellsCleared} cells</span>
         {p.cellsSkipped > 0 && <span className="text-amber-300">{p.cellsSkipped} skipped</span>}
+        {(p.veinBlocks ?? 0) > 0 && <span className="text-sky-300">{p.veinBlocks} from veins</span>}
         <span>{p.trips} trips</span>
         <span>{p.itemsUnloaded} items unloaded</span>
       </div>
       {job.note && active && <div className="mt-1 text-sky-300">{job.note}</div>}
+      {p.finds && Object.keys(p.finds).length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {Object.entries(p.finds)
+            .sort((a, b) => b[1] - a[1])
+            .map(([name, n]) => (
+              <span key={name} className="rounded bg-sky-950/70 px-1.5 py-0.5 text-[10px] text-sky-200">
+                ◆ {shortItem(name)} ×{n}
+              </span>
+            ))}
+        </div>
+      )}
       {turtle && !isChunky(turtle) && job.status !== 'completed' && job.status !== 'cancelled' && (
         <div className="mt-1 text-[11px] text-dim" title="Without a Chunk Controller the turtle's chunk unloads when no player is near, and the job pauses (turtle offline).">
           No Chunk Controller: runs only while a player is near.
@@ -193,3 +205,11 @@ function Btn({ tone, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> &
   );
 }
 
+
+/** One-line summary of a job's shape. */
+function describe(job: JobView): string {
+  const p = job.params as unknown as Record<string, number | string>;
+  if (job.strategy === 'branch') return `branch mine ${p.length} long, branches ${p.branchLength} every ${p.spacing}`;
+  if (job.strategy === 'quarry') return `quarry ${p.width}×${p.length}, ${p.depth} deep`;
+  return `tunnel ${p.width}×${p.height}×${p.length}`;
+}

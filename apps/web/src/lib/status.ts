@@ -1,5 +1,5 @@
 import type { DisplayStatus, TurtleView } from '@ccfleet/protocol';
-import { hasChunkLoader } from '@ccfleet/protocol';
+import { hasChunkLoader, isOreBlock } from '@ccfleet/protocol';
 
 export const STATUS_COLOR: Record<DisplayStatus, string> = {
   idle: '#38bdf8',
@@ -83,6 +83,13 @@ const BLOCK_COLORS: Record<string, string> = {
 export function blockColor(name: string): string {
   const c = BLOCK_COLORS[name];
   if (c) return c;
+  // Modded ores: the colour of the vanilla ore of the same material, if there is one.
+  if (isOreBlock(name)) {
+    for (const w of (name.split(':').pop() ?? '').split(/[/_]/)) {
+      const v = BLOCK_COLORS[`minecraft:${w}_ore`];
+      if (v) return v;
+    }
+  }
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
   return `hsl(${Math.abs(h) % 360} 35% 42%)`;
