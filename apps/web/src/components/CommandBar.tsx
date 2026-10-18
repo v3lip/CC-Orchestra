@@ -99,6 +99,20 @@ export function CommandBar() {
           <Btn disabled={none} onClick={() => runBatch(api.stop({ turtleIds: ids }, 'pause'))} title="Pause after the current atomic action">Pause</Btn>
           <Btn disabled={none} onClick={() => runBatch(api.resume({ turtleIds: ids }))}>Resume</Btn>
           <Btn disabled={none} onClick={() => runBatch(api.cancel({ turtleIds: ids }))} title="Cancel queued commands">Cancel</Btn>
+          <Btn
+            disabled={targets.length !== 1}
+            title="Drive one turtle to a coordinate through known space, without digging, giving way to other turtles"
+            onClick={() => {
+              const t = targets[0];
+              const p = t?.state?.pose.pos;
+              const input = prompt(`Send ${t.name} to x y z:`, p ? `${p.x} ${p.y} ${p.z}` : '');
+              const c = input?.trim().split(/[\s,]+/).map(Number);
+              if (!c || c.length !== 3 || c.some((n) => !Number.isInteger(n))) return;
+              api.goto(t.id, { x: c[0], y: c[1], z: c[2] }).catch((e) => useFleet.getState().toast('error', (e as Error).message));
+            }}
+          >
+            Go to…
+          </Btn>
           <Btn onClick={() => useFleet.getState().setRightTab('jobs')} title="Mining jobs (return, unloading and refuelling happen inside jobs)">
             Jobs…
           </Btn>

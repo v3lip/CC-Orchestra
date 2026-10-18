@@ -11,7 +11,10 @@ import {
   type JobPhase,
   type JobStatus,
   type JobView,
+  type TunnelParams,
+  type TurtleView,
   type Vec3,
+  CampaignInput as CampaignSchema,
   DepotInput as DepotSchema,
   JobInput as JobSchema,
   JobPolicy,
@@ -20,8 +23,10 @@ import {
 import type { Db } from '../db';
 import { ApiError, type Fleet } from '../fleet';
 import { newId, now } from '../util';
-import { boxesOverlap, lanes, manhattan, tunnelBox } from './geometry';
-import { Interrupt, JobError, JobRunner } from './runner';
+import { boxesOverlap, eq, fmt, key, lanes, manhattan, splitTunnel, tunnelBox } from './geometry';
+import { JobRunner } from './runner';
+import { Interrupt, JobError, Mover } from './mover';
+import { Traffic } from './traffic';
 
 export interface JobRec {
   view: JobView;
@@ -42,6 +47,10 @@ export class JobManager {
   private depots = new Map<string, DepotView>();
   private runners = new Map<string, Promise<void>>();
   private dockLocks = new Map<string, string>();
+  /** depotId -> (spot key -> turtle) */
+  private spotClaims = new Map<string, Map<string, string>>();
+  private tasks = new Map<string, { id: string; target: Vec3; status: 'running' | 'stopping'; note?: string; reason?: string }>();
+  readonly traffic: Traffic;
   private pendingBroadcast = new Set<string>();
   private timer: NodeJS.Timeout;
 
@@ -49,9 +58,11 @@ export class JobManager {
     private db: Db,
     private fleet: Fleet,
   ) {
+    this.traffic = new Traffic(fleet);
     this.load();
     fleet.hooks.operatorAction = (ids, kind) => {
       for (const id of ids) {
+        this.stopTask(id, kind === 'command' ? 'manual control took over' : 'stopped by operator');
         const job = this.activeJobFor(id);
         if (job && (job.view.status === 'running' || job.view.status === 'pausing')) {
           this.pause(job.view.id, kind === 'command' ? 'manual control took over' : kind === 'stop' ? 'turtle stopped by operator' : 'commands cancelled');
@@ -59,12 +70,17 @@ export class JobManager {
       }
     };
     fleet.hooks.disconnected = (id) => {
+      this.stopTask(id, 'turtle went offline');
       const job = this.activeJobFor(id);
       if (job && (job.view.status === 'running' || job.view.status === 'pausing')) this.pause(job.view.id, 'turtle went offline');
     };
     fleet.hooks.removed = (id) => {
       const job = this.activeJobFor(id);
       if (job) this.cancel(job.view.id);
+    };
+    fleet.hooks.taskOf = (id) => {
+      const t = this.tasks.get(id);
+      return t && { kind: 'goto', target: t.target, note: t.note };
     };
     fleet.hooks.jobOf = (id) => {
       const j = this.activeJobFor(id);
@@ -74,9 +90,20 @@ export class JobManager {
     this.timer = setInterval(() => this.flush(), 200);
   }
 
+  private closed = false;
+
+  /** Shutdown: stop go-to tasks and running jobs after their current step. */
   close(): void {
+    for (const id of this.tasks.keys()) this.stopTask(id, 'backend shutting down');
+    for (const j of this.jobs.values()) {
+      if (j.view.status === 'running') {
+        j.view.status = 'pausing';
+        j.view.pauseReason = 'backend restarted';
+      }
+    }
     clearInterval(this.timer);
     this.flush();
+    this.closed = true;
   }
 
   log(level: EventView['level'], message: string, turtleId?: string): void {
@@ -102,6 +129,7 @@ export class JobManager {
   }
 
   save(job: JobRec): void {
+    if (this.closed) return;
     job.view.updatedAt = now();
     this.db
       .prepare('INSERT INTO jobs (id, data_json, checkpoint_json, status, turtle_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json, checkpoint_json=excluded.checkpoint_json, status=excluded.status, updated_at=excluded.updated_at')
@@ -158,27 +186,51 @@ export class JobManager {
   }
 
   /**
-   * Serialise use of a depot's dock and its approach. Waits as long as needed (the job
-   * shows as 'waiting'). A lock held by an offline turtle stays: it may still be in the way.
+   * Take the dock if it is free (or already ours). Otherwise returns a label for the
+   * holder. The dock is held from heading in until the turtle steps off it; a lock held
+   * by an offline turtle stays, as it may still be standing there.
    */
-  async acquireDock(depotId: string, turtleId: string, stillWanted: () => boolean, onWait?: (holderName: string) => void): Promise<void> {
-    let announced: string | undefined;
-    for (;;) {
-      const holder = this.dockLocks.get(depotId);
-      if (!holder || holder === turtleId) {
+  tryLockDock(depotId: string, turtleId: string): string | undefined {
+    const holder = this.dockLocks.get(depotId);
+    if (!holder || holder === turtleId) {
+      if (!holder) {
         this.dockLocks.set(depotId, turtleId);
         this.broadcastDepot(depotId);
-        return;
       }
-      if (!stillWanted()) throw new Interrupt('stopped while waiting for the dock');
-      const t = this.fleet.getTurtle(holder);
-      const label = `${t?.name ?? holder}${t && t.connection === 'offline' ? ', offline — it may still be in the way' : ''}`;
-      if (label !== announced) {
-        announced = label;
-        onWait?.(label);
-      }
-      await new Promise((r) => setTimeout(r, 500));
+      return undefined;
     }
+    const t = this.fleet.getTurtle(holder);
+    return `${t?.name ?? holder}${t && t.connection === 'offline' ? ', offline — it may still be in the way' : ''}`;
+  }
+
+  /** The waiting spot this turtle holds at a depot, if any. */
+  spotOf(depotId: string, turtleId: string): Vec3 | undefined {
+    for (const [k, t] of this.spotClaims.get(depotId) ?? []) {
+      if (t === turtleId) {
+        const [x, y, z] = k.split(',').map(Number);
+        return { x, y, z };
+      }
+    }
+    return undefined;
+  }
+
+  /** Claim the nearest free waiting spot (not claimed, nobody standing on it). */
+  claimSpot(depotId: string, turtleId: string, from: Vec3): Vec3 | undefined {
+    const d = this.depots.get(depotId);
+    if (!d?.waiting.length) return undefined;
+    const claims = this.spotClaims.get(depotId) ?? new Map<string, string>();
+    this.spotClaims.set(depotId, claims);
+    const occupied = new Set(this.fleet.turtlePositions(d.world, d.dimension, turtleId).map(key));
+    const free = d.waiting.filter((s) => !claims.has(key(s)) && !occupied.has(key(s))).sort((a, b) => manhattan(a, from) - manhattan(b, from));
+    if (!free.length) return undefined;
+    claims.set(key(free[0]), turtleId);
+    return free[0];
+  }
+
+  releaseSpot(depotId: string, turtleId: string): void {
+    const claims = this.spotClaims.get(depotId);
+    if (!claims) return;
+    for (const [k, t] of claims) if (t === turtleId) claims.delete(k);
   }
 
   /** Does another unfinished job use this depot? */
@@ -251,17 +303,41 @@ export class JobManager {
 
   createJob(input: unknown): JobView {
     const j = JobSchema.parse(input);
-    const depot = this.depots.get(j.depotId);
+    this.validateNew([{ turtleId: j.turtleId, params: j.params, name: j.name }], j.depotId);
+    return this.insertJob(input);
+  }
+
+  /**
+   * Check a set of new tunnels before creating any: known depot and turtles, no turtle
+   * with an unfinished job or used twice, no overlap with each other or unfinished jobs.
+   */
+  private validateNew(specs: { turtleId: string; params: TunnelParams; name: string }[], depotId: string): void {
+    const depot = this.depots.get(depotId);
     if (!depot) throw new ApiError(400, 'unknown depot');
-    const turtle = this.fleet.getTurtle(j.turtleId);
-    if (!turtle) throw new ApiError(400, 'unknown turtle');
-    if (this.activeJobFor(j.turtleId)) throw new ApiError(409, `${turtle.name} already has an unfinished job`);
-    // Two jobs digging the same cells would fight over them (and their turtles would collide).
-    const box = tunnelBox(j.params);
-    for (const o of this.jobs.values()) {
-      if (!ACTIVE.has(o.view.status) || o.view.world !== depot.world || o.view.dimension !== depot.dimension) continue;
-      if (boxesOverlap(box, tunnelBox(o.view.params))) throw new ApiError(409, `This tunnel overlaps job "${o.view.name}". Move it or finish/cancel that job first.`);
-    }
+    const seen = new Set<string>();
+    specs.forEach((s, i) => {
+      const turtle = this.fleet.getTurtle(s.turtleId);
+      if (!turtle) throw new ApiError(400, 'unknown turtle');
+      if (seen.has(s.turtleId)) throw new ApiError(400, `${turtle.name} is listed twice`);
+      seen.add(s.turtleId);
+      if (this.activeJobFor(s.turtleId)) throw new ApiError(409, `${turtle.name} already has an unfinished job`);
+      if (this.tasks.has(s.turtleId)) throw new ApiError(409, `${turtle.name} is busy with a go-to task`);
+      // Two jobs digging the same cells would fight over them (and their turtles would collide).
+      const box = tunnelBox(s.params);
+      for (const o of this.jobs.values()) {
+        if (!ACTIVE.has(o.view.status) || o.view.world !== depot.world || o.view.dimension !== depot.dimension) continue;
+        if (boxesOverlap(box, tunnelBox(o.view.params))) throw new ApiError(409, `${s.name}: the tunnel overlaps job "${o.view.name}". Move it or finish/cancel that job first.`);
+      }
+      specs.slice(i + 1).forEach((o) => {
+        if (boxesOverlap(box, tunnelBox(o.params))) throw new ApiError(409, `${s.name} and ${o.name} would dig the same cells`);
+      });
+    });
+  }
+
+  private insertJob(input: unknown, extra: Pick<JobView, 'campaignId' | 'campaignName' | 'lane'> = {}): JobView {
+    const j = JobSchema.parse(input);
+    const depot = this.depots.get(j.depotId)!;
+    const turtle = this.fleet.getTurtle(j.turtleId)!;
     const { estimate } = this.estimate(input);
     const t = now();
     const rec: JobRec = {
@@ -276,6 +352,7 @@ export class JobManager {
         dimension: depot.dimension,
         depotId: depot.id,
         turtleId: j.turtleId,
+        ...extra,
         status: 'ready',
         phase: 'idle',
         progress: { unitsDone: 0, unitsTotal: j.params.length, cellsCleared: 0, cellsSkipped: 0, trips: 0, itemsUnloaded: 0 },
@@ -308,7 +385,7 @@ export class JobManager {
     job.view.startedAt ??= now();
     this.save(job);
     this.log('info', `Job "${job.view.name}" ${job.view.progress.unitsDone || job.checkpoint.servicing ? 'resumed' : 'started'}`, job.view.turtleId);
-    const runner = new JobRunner(this, this.fleet, job);
+    const runner = new JobRunner(this, this.fleet, this.traffic, job);
     const p = runner.run().finally(() => this.runners.delete(id));
     this.runners.set(id, p);
     return job.view;
@@ -337,6 +414,7 @@ export class JobManager {
     job.view.finishedAt = now();
     job.view.route = undefined;
     this.releaseDock(job.view.depotId, job.view.turtleId);
+    this.releaseSpot(job.view.depotId, job.view.turtleId);
     this.save(job);
     this.log('warn', `Job "${job.view.name}" cancelled`, job.view.turtleId);
     return job.view;
@@ -349,6 +427,143 @@ export class JobManager {
     this.db.prepare('DELETE FROM jobs WHERE id=?').run(id);
     this.fleet.broadcast({ type: 'job_removed', id });
     this.fleet.touchTurtle(job.view.turtleId);
+  }
+
+  // ------------------------------------------------------------------ campaigns & group actions
+
+  /** Create several jobs at once (all validated first). Optionally start them. */
+  createCampaign(input: unknown): { campaignId: string; jobs: JobView[]; skipped: string[] } {
+    const c = CampaignSchema.parse(input);
+    const campaignId = newId('k');
+    let specs: { turtleId: string; params: TunnelParams; name: string; lane?: { index: number; count: number } }[];
+    let skipped: string[] = [];
+    const nameOf = (id: string) => this.fleet.getTurtle(id)?.name ?? id;
+    if (c.split) {
+      const turtles = c.split.turtleIds.map((id) => ({ id, pos: this.fleet.getTurtle(id)?.state?.pose.pos }));
+      const s = splitTunnel(c.split.params, turtles);
+      skipped = s.skipped.map(nameOf);
+      specs = s.lanes.map((l) => ({ turtleId: l.turtleId, params: l.params, name: `${c.name} · lane ${l.index + 1}/${s.lanes.length} · ${nameOf(l.turtleId)}`, lane: { index: l.index, count: s.lanes.length } }));
+    } else {
+      specs = c.jobs!.map((j) => ({ turtleId: j.turtleId, params: j.params, name: c.jobs!.length > 1 ? `${c.name} · ${nameOf(j.turtleId)}` : c.name }));
+    }
+    this.validateNew(specs, c.depotId);
+    const jobs = specs.map((s) =>
+      this.insertJob({ name: s.name, strategy: 'tunnel', params: s.params, depotId: c.depotId, turtleId: s.turtleId, policy: c.policy }, { campaignId, campaignName: c.name, lane: s.lane }),
+    );
+    this.log('info', `Campaign "${c.name}": ${jobs.length} job(s)${skipped.length ? `; skipped ${skipped.join(', ')} (more turtles than columns)` : ''}`);
+    if (c.start) for (const j of jobs) this.start(j.id);
+    return { campaignId, jobs: jobs.map((j) => this.jobs.get(j.id)!.view), skipped };
+  }
+
+  /** Start/pause/cancel every job in a set; per-job results (some may not apply). */
+  private applyAll(ids: string[], action: 'start' | 'pause' | 'cancel'): { jobId: string; ok: boolean; error?: string }[] {
+    return ids.map((id) => {
+      const j = this.jobs.get(id)!;
+      try {
+        if (action === 'start') {
+          if (j.view.status !== 'ready' && j.view.status !== 'paused') return { jobId: id, ok: false, error: `job is ${j.view.status}` };
+          this.start(id);
+        } else if (action === 'pause') {
+          if (j.view.status !== 'running') return { jobId: id, ok: false, error: `job is ${j.view.status}` };
+          this.pause(id);
+        } else {
+          if (!ACTIVE.has(j.view.status)) return { jobId: id, ok: false, error: `job is ${j.view.status}` };
+          this.cancel(id);
+        }
+        return { jobId: id, ok: true };
+      } catch (e) {
+        return { jobId: id, ok: false, error: (e as Error).message };
+      }
+    });
+  }
+
+  campaignAction(campaignId: string, action: 'start' | 'pause' | 'cancel') {
+    const ids = [...this.jobs.values()].filter((j) => j.view.campaignId === campaignId).map((j) => j.view.id);
+    if (!ids.length) throw new ApiError(404, 'unknown campaign');
+    return this.applyAll(ids, action);
+  }
+
+  /** Act on the unfinished jobs of some turtles (e.g. a selection or a fleet group). */
+  turtlesAction(turtleIds: string[], action: 'start' | 'pause' | 'cancel') {
+    const ids = turtleIds.map((t) => this.activeJobFor(t)?.view.id).filter((x): x is string => !!x);
+    return this.applyAll(ids, action);
+  }
+
+  // ------------------------------------------------------------------ go-to tasks
+
+  /**
+   * Drive a turtle to a cell through known space, following the traffic rules. Never
+   * digs. Manual commands, stops and disconnects end it.
+   */
+  goto(turtleId: string, target: Vec3): void {
+    const t = this.fleet.getTurtle(turtleId);
+    if (!t) throw new ApiError(404, 'unknown turtle');
+    if (t.connection === 'offline') throw new ApiError(409, `${t.name} is offline`);
+    const job = this.activeJobFor(turtleId);
+    if (job && (job.view.status === 'running' || job.view.status === 'pausing')) throw new ApiError(409, `${t.name} is running job "${job.view.name}"; pause it first`);
+    if (this.tasks.has(turtleId)) throw new ApiError(409, `${t.name} is already on its way somewhere`);
+    const task = { id: newId('g'), target, status: 'running' as 'running' | 'stopping', note: undefined as string | undefined, reason: undefined as string | undefined };
+    this.tasks.set(turtleId, task);
+    const touch = () => this.fleet.touchTurtle(turtleId);
+    const mover = new Mover({
+      fleet: this.fleet,
+      traffic: this.traffic,
+      turtleId,
+      world: t.world,
+      dimension: t.dimension,
+      executor: `goto:${task.id}`,
+      isActive: () => task.status === 'running',
+      stopReason: () => task.reason ?? 'stopped',
+      canDig: () => false,
+      extraBlocked: () => this.allDepotChests(t.world, t.dimension),
+      onWait: (note) => {
+        task.note = note;
+        touch();
+      },
+      log: (level, msg) => this.log(level, msg, turtleId),
+    });
+    this.traffic.join(turtleId, t.name, t.world, t.dimension, now());
+    touch();
+    this.log('info', `${t.name}: going to ${fmt(target)}`, turtleId);
+    mover
+      .moveTo(target)
+      .then(() => this.log('info', `${t.name} arrived at ${fmt(target)}`, turtleId))
+      .catch((e) => {
+        if (e instanceof Interrupt) this.log('warn', `${t.name}: go-to ${fmt(target)} stopped (${e.message})`, turtleId);
+        else this.log('error', `${t.name}: go-to ${fmt(target)} failed — ${(e as Error).message}`, turtleId);
+      })
+      .finally(() => {
+        this.traffic.leave(turtleId);
+        if (this.tasks.get(turtleId) === task) this.tasks.delete(turtleId);
+        touch();
+      });
+  }
+
+  stopTask(turtleId: string, reason: string): void {
+    const task = this.tasks.get(turtleId);
+    if (task && task.status === 'running') {
+      task.status = 'stopping';
+      task.reason = reason;
+    }
+  }
+
+  /** Has a go-to task (tests). */
+  taskRunning(turtleId: string): boolean {
+    return this.tasks.has(turtleId);
+  }
+
+  private allDepotChests(world: string, dimension: string): Vec3[] {
+    const out: Vec3[] = [];
+    for (const d of this.depots.values()) {
+      if (d.world !== world || d.dimension !== dimension) continue;
+      for (const dir of [d.unloadDir, d.fuelDir]) {
+        if (!dir) continue;
+        if (dir === 'up') out.push({ ...d.dock, y: d.dock.y + 1 });
+        else if (dir === 'down') out.push({ ...d.dock, y: d.dock.y - 1 });
+        else out.push({ x: d.dock.x + [0, 1, 0, -1][d.dockHeading], y: d.dock.y, z: d.dock.z + [-1, 0, 1, 0][d.dockHeading] });
+      }
+    }
+    return out;
   }
 
   /** Wait until a job's runner has exited (tests, shutdown). */

@@ -40,6 +40,7 @@ export function DepotsPanel() {
           <div className="num mt-1 text-dim">
             dock {d.dock.x} {d.dock.y} {d.dock.z} facing {HEADING_SHORT[d.dockHeading]} · unload chest {DIR_LABEL[d.unloadDir]}
             {d.fuelDir ? ` · fuel chest ${DIR_LABEL[d.fuelDir]}` : ' · no fuel chest'}
+            {` · ${d.waiting.length} waiting spot(s)`}
           </div>
           <div className="mt-1 flex gap-2">
             <button className="text-cyan-300 hover:underline" onClick={() => centerOn(d.dock.x, d.dock.z, d.dock.y)}>
@@ -81,6 +82,7 @@ function DepotForm({ depot, onDone }: { depot?: DepotView; onDone: () => void })
     unloadDir: (depot?.unloadDir ?? 'front') as Dir,
     fuelDir: (depot?.fuelDir ?? '') as Dir | '',
   }));
+  const [spots, setSpots] = useState(depot?.waiting ?? []);
   const [err, setErr] = useState<string>();
   const useTurtle = () => {
     const p = focus?.state?.pose;
@@ -101,7 +103,7 @@ function DepotForm({ depot, onDone }: { depot?: DepotView; onDone: () => void })
           dockHeading: Number(v.heading) as Heading,
           unloadDir: v.unloadDir,
           fuelDir: v.fuelDir || undefined,
-          waiting: depot?.waiting ?? [],
+          waiting: spots,
         },
         depot?.id,
       );
@@ -154,6 +156,39 @@ function DepotForm({ depot, onDone }: { depot?: DepotView; onDone: () => void })
       <div className="rounded border border-edge bg-panel-2 p-2 text-[11px] text-dim">
         <b className="text-ink">Physical setup.</b> Leave the dock cell empty; the turtle parks there. Put a chest {DIR_LABEL[v.unloadDir]} it
         {v.unloadDir === 'front' ? ' (in the direction of “Facing”)' : ''}. A fuel chest, if any, goes on another side; keep only fuel in it (coal, charcoal…). The turtle never drops items unless the block there is an inventory.
+      </div>
+      <div className="rounded border border-edge bg-panel-2 p-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase tracking-wide text-dim">Waiting spots</span>
+          <button
+            disabled={!focus?.state?.pose.pos}
+            onClick={() => {
+              const p = focus?.state?.pose.pos;
+              if (p && !spots.some((s) => s.x === p.x && s.y === p.y && s.z === p.z)) setSpots([...spots, { ...p }]);
+            }}
+            className="text-[11px] text-cyan-300 hover:underline disabled:text-slate-600 disabled:no-underline"
+          >
+            + {focus ? `${focus.name}'s position` : 'selected turtle'}
+          </button>
+        </div>
+        {spots.length === 0 ? (
+          <p className="mt-1 text-[11px] text-dim">
+            Optional. When the dock is busy, turtles wait on a free spot instead of where they are. Pick open cells near the dock that are off the main path (an alcove is ideal).
+          </p>
+        ) : (
+          <ul className="mt-1 space-y-0.5">
+            {spots.map((s, i) => (
+              <li key={i} className="num flex justify-between">
+                <span>
+                  {s.x} {s.y} {s.z}
+                </span>
+                <button className="text-red-400 hover:underline" onClick={() => setSpots(spots.filter((_, j) => j !== i))}>
+                  remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <Field label="World / dimension">
         <div className="flex gap-1">

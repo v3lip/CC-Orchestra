@@ -1,5 +1,28 @@
 # Progress notes
 
+## Milestone 4 — multi-turtle scheduling, traffic, depot queues ✅ (2026-10-18; in-game check pending)
+
+**Implemented**
+
+- **Traffic control** (`traffic.ts`): per-move cell reservations (no shared cells, no head-on swaps), a wait-for graph, and deadlock resolution: the least important turtle steps into nearby known-free space off the other's route. If nobody can, the job stops with `deadlock` instead of hanging. Turtles nobody drives (manual, idle, offline) are walls; moving agents are expensive cells.
+- **Mover** (`mover.ts`): movement extracted from the job runner and shared by jobs and go-to tasks: planning, reservations, yielding, gravel retries, unknown-obstruction inspection.
+- **Dock waiting spots**: the depot form gets a list of spots. A turtle finding the dock busy waits on the nearest free spot; the dock is held only while a turtle heads in or stands on it (no longer the whole corridor). Waiting spots are drawn on the map.
+- **Campaigns**: create several jobs at once, validated all-or-nothing. Either one tunnel per turtle, or **one tunnel split into lanes**, one per turtle, assigned left to right; the form previews the lanes and starts them in front of the leftmost turtle. Campaign card with combined progress and Start/Pause/Cancel all; plus pause/resume for the jobs of the selected turtles.
+- **Go to**: send one turtle to a coordinate through known space (no digging) under traffic rules.
+- `fleet.importObservations` for map data from other sources (tests now, scanner adapters in Milestone 6).
+- Shutdown stops tasks and jobs before the database closes (no work after shutdown).
+
+**Verified — outside Minecraft only**
+
+`npm test`: 56 tests. New: traffic unit tests (reservations; cycle detection, victim choice, `stuck`); head-on in a 1-wide corridor with an alcove (one steps aside, both arrive, never in the same cell); the same without an alcove (deadlock reported, no hang); a 4-wide tunnel split into 2 lanes (both complete, every cell cleared); all-or-nothing campaign validation; two turtles queueing on a waiting spot, with group pause and resume. The existing 47 still pass after the refactor.
+Also clicked through on a test instance: a 3-turtle shared tunnel (lanes previewed in front of each turtle), the campaign card, Pause all / Resume all, waiting spots on the map.
+
+**Limitations**
+
+- Stepping aside only uses cells already known to be free. Turtles map only what they move through and inspect (front/up/down), so a side alcove has to have been seen.
+- Priorities are by job start time, not by urgency (e.g. low fuel).
+- Lanes split the width only; height or length splits (and quarries) come with Milestone 5's strategies.
+
 ## Chunk loading visibility (2026-10-18)
 
 - Agent `lua-0.3.1` / `sim-0.3.1` reports each upgrade side's peripheral type (`state.upgrades`). An Advanced Peripherals Chunk Controller reports `chunky`. This was verified from the installed AP 0.7.7.1r jar: `ChunkyPeripheral.TYPE = "chunky"`. It force-loads the turtle's current chunk via ForgeChunkManager, refreshed each tick, expires after `chunkLoadValidTime` (600 s), and persists across server restarts.

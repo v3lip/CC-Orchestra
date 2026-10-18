@@ -19,6 +19,29 @@ function tunnelBox(p: TunnelParams): Box {
 const overlap = (a: Box, b: Box) =>
   a.min.x <= b.max.x && b.min.x <= a.max.x && a.min.y <= b.max.y && b.min.y <= a.max.y && a.min.z <= b.max.z && b.min.z <= a.max.z;
 
+/** Same lane split as the server: one lane per turtle, assigned left to right. */
+function splitLanes(p: TunnelParams, ts: TurtleView[]): { lanes: { turtle: TurtleView; params: TunnelParams }[]; left: TurtleView[] } {
+  const n = Math.min(ts.length, p.width);
+  if (n === 0) return { lanes: [], left: ts };
+
+  const r = HEADING_VECTORS[(p.heading + 1) % 4];
+  const along = (t: TurtleView) => {
+    const q = t.state?.pose.pos;
+    return q ? (q.x - p.origin.x) * r.x + (q.z - p.origin.z) * r.z : Infinity;
+  };
+  const ordered = [...ts].sort((a, b) => along(a) - along(b));
+  const base = Math.floor(p.width / n);
+  const extra = p.width % n;
+  const lanes: { turtle: TurtleView; params: TunnelParams }[] = [];
+  let offset = 0;
+  for (let i = 0; i < n; i++) {
+    const width = base + (i < extra ? 1 : 0);
+    lanes.push({ turtle: ordered[i], params: { ...p, origin: { x: p.origin.x + r.x * offset, y: p.origin.y, z: p.origin.z + r.z * offset }, width } });
+    offset += width;
+  }
+  return { lanes, left: ordered.slice(n) };
+}
+
 /** The tunnel origin "in front of the turtle, at its level, in its facing". */
 function frontOf(t: TurtleView): { origin: { x: number; y: number; z: number }; heading: Heading } | undefined {
   const p = t.state?.pose;
@@ -46,6 +69,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
     turtleId: focusId ?? selection[0] ?? '',
     depotId: depots[0]?.id ?? '',
     originMode: 'front' as 'front' | 'manual',
+    layout: 'each' as 'each' | 'split',
     x: '',
     y: '',
     z: '',
@@ -66,7 +90,30 @@ export function JobForm({ onDone }: { onDone: () => void }) {
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
 
   const targetIds = multi ? selection : v.turtleId ? [v.turtleId] : [];
-  const mode = multi ? 'front' : v.originMode;
+  const split = multi && v.layout === 'split';
+  // "Each" builds every tunnel from its own turtle; "split" builds one tunnel (from the
+  // focused turtle's front or typed coordinates) and divides it into lanes.
+  const mode = multi && !split ? 'front' : v.originMode;
+  // A shared tunnel starts in front of the leftmost selected turtle (seen along its
+  // facing), so the lanes extend to the right in front of the others.
+  const anchorId = useMemo(() => {
+    const base = turtles[focusId && selection.includes(focusId) ? focusId : selection[0]];
+    const h = base?.state?.pose.heading;
+    if (h === undefined) return base?.id;
+    const r = HEADING_VECTORS[(h + 1) % 4];
+    let best = base;
+    let bestAlong = Infinity;
+    for (const id of selection) {
+      const p = turtles[id]?.state?.pose;
+      if (!p?.pos || p.heading !== h) continue;
+      const along = p.pos.x * r.x + p.pos.z * r.z;
+      if (along < bestAlong) {
+        bestAlong = along;
+        best = turtles[id];
+      }
+    }
+    return best?.id;
+  }, [turtles, selection, focusId]);
 
   // One draft per turtle that can take a job; the rest are listed with the reason.
   const { drafts, skipped } = useMemo(() => {
@@ -75,6 +122,29 @@ export function JobForm({ onDone }: { onDone: () => void }) {
     const skipped: { name: string; why: string }[] = [];
     const drafts: { turtle: TurtleView; params: TunnelParams }[] = [];
     if (dims.some((d) => !Number.isInteger(d) || d < 1)) return { drafts, skipped };
+    if (split) {
+      const eligible: TurtleView[] = [];
+      for (const id of targetIds) {
+        const t = turtles[id];
+        if (!t) continue;
+        if (t.job) skipped.push({ name: t.name, why: `already has job "${t.job.name}"` });
+        else eligible.push(t);
+      }
+      let whole: TunnelParams | undefined;
+      if (mode === 'front') {
+        const f = turtles[anchorId] && frontOf(turtles[anchorId]);
+        if (f) whole = { origin: f.origin, heading: f.heading, width: dims[0], height: dims[1], length: dims[2] };
+      } else {
+        const c = [v.x, v.y, v.z].map(n);
+        if (![v.x, v.y, v.z].some((s) => s.trim() === '') && c.every((x) => Number.isInteger(x))) {
+          whole = { origin: { x: c[0], y: c[1], z: c[2] }, heading: n(v.heading) as Heading, width: dims[0], height: dims[1], length: dims[2] };
+        }
+      }
+      if (!whole) return { drafts, skipped };
+      const s = splitLanes(whole, eligible);
+      for (const t of s.left) skipped.push({ name: t.name, why: 'more turtles than columns' });
+      return { drafts: s.lanes, skipped };
+    }
     for (const id of targetIds) {
       const t = turtles[id];
       if (!t) continue;
@@ -101,7 +171,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
     }
     return { drafts, skipped };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turtles, targetIds.join(','), mode, v.x, v.y, v.z, v.heading, v.width, v.height, v.length]);
+  }, [turtles, targetIds.join(','), mode, split, anchorId, v.x, v.y, v.z, v.heading, v.width, v.height, v.length]);
 
   // Overlaps between the new tunnels, and with unfinished jobs.
   const conflicts = useMemo(() => {
@@ -170,6 +240,34 @@ export function JobForm({ onDone }: { onDone: () => void }) {
   const create = async (start: boolean) => {
     if (!inputs.length) return setErr('Nothing to create: check the turtles and sizes.');
     setErr(undefined);
+    if (multi) {
+      // A campaign: every job is checked on the server before any is created.
+      setBusy(true);
+      try {
+        const policy = inputs[0].policy;
+        const r = await api.createCampaign(
+          split
+            ? {
+                name: v.name || 'Tunnel',
+                depotId: v.depotId,
+                policy,
+                start,
+                split: {
+                  params: { ...drafts[0].params, origin: drafts[0].params.origin, width: drafts.reduce((w, d) => w + d.params.width, 0) },
+                  turtleIds: drafts.map((d) => d.turtle.id),
+                },
+              }
+            : { name: v.name || 'Tunnel', depotId: v.depotId, policy, start, jobs: drafts.map((d) => ({ turtleId: d.turtle.id, params: d.params })) },
+        );
+        useFleet.getState().toast('info', `Created ${r.jobs.length} jobs${start ? ' and started them' : ''}${r.skipped.length ? `; skipped ${r.skipped.join(', ')}` : ''}`);
+        onDone();
+      } catch (e) {
+        setErr((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     const failures: string[] = [];
     for (const input of inputs) {
@@ -227,7 +325,21 @@ export function JobForm({ onDone }: { onDone: () => void }) {
         </Field>
       </div>
 
-      {!multi && (
+      {multi && (
+        <div className="flex gap-1 text-[11px]">
+          {(['each', 'split'] as const).map((l) => (
+            <button
+              key={l}
+              onClick={() => setV({ ...v, layout: l })}
+              className={`flex-1 rounded border px-2 py-1 ${v.layout === l ? 'border-cyan-600 bg-cyan-950/60 text-cyan-100' : 'border-edge text-dim hover:text-ink'}`}
+              title={l === 'each' ? 'Every turtle digs its own tunnel, starting in front of it' : 'One wide tunnel, split side by side into one lane per turtle'}
+            >
+              {l === 'each' ? 'One tunnel each' : 'Share one tunnel (lanes)'}
+            </button>
+          ))}
+        </div>
+      )}
+      {(!multi || split) && (
         <div className="flex gap-1 text-[11px]">
           {(['front', 'manual'] as const).map((m) => (
             <button
@@ -235,17 +347,22 @@ export function JobForm({ onDone }: { onDone: () => void }) {
               onClick={() => setV({ ...v, originMode: m })}
               className={`flex-1 rounded border px-2 py-1 ${v.originMode === m ? 'border-cyan-600 bg-cyan-950/60 text-cyan-100' : 'border-edge text-dim hover:text-ink'}`}
             >
-              {m === 'front' ? 'Start in front of the turtle' : 'Enter coordinates'}
+              {m === 'front' ? `Start in front of ${split ? (turtles[anchorId]?.name ?? 'the focused turtle') : 'the turtle'}` : 'Enter coordinates'}
             </button>
           ))}
         </div>
       )}
-      {mode === 'front' ? (
+      {split && (
+        <p className="text-[11px] text-dim">
+          The width is divided into side-by-side lanes, one per turtle, assigned left to right by where the turtles stand, so their paths don't cross. Make the width at least the number of turtles.
+        </p>
+      )}
+      {mode === 'front' && !split ? (
         <p className="text-[11px] text-dim">
           {multi ? 'Each tunnel starts' : 'The tunnel starts'} in the cell in front of {multi ? 'its' : 'the'} turtle, at {multi ? 'its' : 'the'} level, going the way {multi ? 'it faces' : 'it faces'}. Point
           turtles at the rock before creating.
         </p>
-      ) : (
+      ) : mode === 'front' ? null : (
         <div className="grid grid-cols-4 gap-1">
           <Field label="Origin X">
             <input value={v.x} onChange={set('x')} className="inp num" />

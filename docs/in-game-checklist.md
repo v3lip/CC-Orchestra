@@ -22,6 +22,15 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 14. [ ] **Several turtles, one depot:** put 2–3 turtles side by side at a rock face, 2+ blocks apart, facing the rock. Select them all → **Jobs** → **New tunnel**. Each gets its own tunnel in front of it (check the preview), then **Create & start N jobs**. When two want to unload at once, one shows *waiting for the dock (in use by …)* until the other is back in its tunnel.
 
+### Milestone 4: traffic, lanes, waiting spots, group controls
+
+20. [ ] **Waiting spots:** Depots → Edit → drive a turtle to an open cell near the dock (off the main path) → "+ position" → Save. Repeat for a second spot. They show as dashed **W** squares on the map.
+21. [ ] **Shared tunnel:** line up 2–3 turtles side by side facing the rock. Select them → Jobs → New tunnel → **Share one tunnel (lanes)**, width ≥ number of turtles. The preview shows one lane in front of each turtle. **Create & start**. A campaign card appears with combined progress.
+22. [ ] When two turtles need the dock at once, one goes to a waiting spot (job note: *waiting for the dock … at spot …*) and docks when the other has left.
+23. [ ] **Pause all / Resume all** on the campaign card. Also select two of the turtles: the "Jobs of N selected turtles" bar pauses/resumes just those.
+24. [ ] **Go to:** select one turtle, Control → **Go to…**, enter a nearby coordinate in known space. It drives there without digging. Pressing W during the trip stops it.
+25. [ ] **Head-on:** send two turtles towards each other through a 1-wide passage with a side alcove they have both seen (walked past or inspected). One steps into the alcove (activity log: *steps aside*), and both arrive. With no alcove, a *block each other* error appears within ~30 s instead of them pushing forever.
+
 ### Chunky turtles (Chunk Controller)
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.

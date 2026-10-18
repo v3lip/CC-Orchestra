@@ -133,6 +133,17 @@ export function DetailsPanel() {
       <Section title="Activity">
         <Row k="Current command" v={st?.currentCommandId ? <span className="num">{st.currentCommandId}</span> : 'none'} />
         <Row k="Queued" v={<span className="num">{t.queueLength}</span>} />
+        {t.task && (
+          <Row
+            k="Task"
+            v={
+              <span>
+                going to <span className="num">{`${t.task.target.x} ${t.task.target.y} ${t.task.target.z}`}</span>
+                {t.task.note ? <span className="block text-[10px] text-sky-300">{t.task.note}</span> : null}
+              </span>
+            }
+          />
+        )}
         <Row
           k="Job"
           v={

@@ -11,6 +11,8 @@ export interface NavContext {
   cell(p: Vec3): MapBlock | undefined;
   /** Cells that must never be entered. */
   blocked: Set<string>;
+  /** Extra cost for entering a cell (e.g. one a moving turtle currently stands in). */
+  extraCost?: Map<string, number>;
   canDig(p: Vec3, block: string | null): boolean;
   bounds: { min: Vec3; max: Vec3 };
 }
@@ -25,12 +27,14 @@ const NEIGHBOURS: Vec3[] = [
 ];
 
 export function stepCost(ctx: NavContext, p: Vec3): number {
-  if (ctx.blocked.has(key(p))) return Infinity;
+  const k = key(p);
+  if (ctx.blocked.has(k)) return Infinity;
+  const extra = ctx.extraCost?.get(k) ?? 0;
   const c = ctx.cell(p);
-  if (!c) return 3;
-  if (c.cell === 'empty') return 1;
-  if (c.cell === 'fluid') return 1.5;
-  return ctx.canDig(p, c.block) ? 3 : Infinity;
+  if (!c) return 3 + extra;
+  if (c.cell === 'empty') return 1 + extra;
+  if (c.cell === 'fluid') return 1.5 + extra;
+  return ctx.canDig(p, c.block) ? 3 + extra : Infinity;
 }
 
 class Heap {

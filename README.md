@@ -2,7 +2,7 @@
 
 Self-hosted fleet management for CC: Tweaked mining turtles: a browser dashboard, a Node backend, and (from Milestone 2) a Lua agent on each turtle.
 
-> **Status: Milestone 3.** Turtles pair, report telemetry and take manual control in-game (Milestone 2, confirmed in Minecraft). Tunnel jobs with automatic return, verified unloading, refuelling and resume are done and tested **outside Minecraft**; verify them with [docs/in-game-checklist.md](docs/in-game-checklist.md). See [docs/progress.md](docs/progress.md).
+> **Status: Milestone 4.** In-game so far: pairing, telemetry, manual control, tunnel jobs with unloading, and chunk loading with Chunk Controllers. New and tested **outside Minecraft**: traffic control between turtles (reservations, stepping aside, deadlock detection), dock waiting spots, campaigns (one tunnel split into lanes, or one tunnel per turtle) with group controls, and Go to. Verify with [docs/in-game-checklist.md](docs/in-game-checklist.md). See [docs/progress.md](docs/progress.md).
 
 ## Quick start (local development)
 
@@ -90,6 +90,6 @@ install ABCD-EFGH
 1. ✅ Repository, backend, persistence, simulator, basic dashboard
 2. ✅ Real Lua turtle pairing, telemetry, calibrated position, manual control (confirmed in-game)
 3. ✅ One reliable tunnel job, automatic return, unloading and resume (in-game check pending)
-4. Multi-turtle scheduling, groups, depot queues, collision handling
+4. ✅ Multi-turtle scheduling, groups, depot queues, collision handling (in-game check pending)
 5. More strategies, formations, persistent 2D mapping
 6. 3D view and optional mapping integrations

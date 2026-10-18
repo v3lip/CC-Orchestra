@@ -22,11 +22,28 @@ async function act(p: Promise<unknown>) {
   }
 }
 
+function results(rs: { ok: boolean; error?: string }[], verb: string) {
+  const ok = rs.filter((r) => r.ok).length;
+  const skipped = rs.length - ok;
+  useFleet.getState().toast('info', `${verb} ${ok} job(s)${skipped ? `; ${skipped} not applicable` : ''}`);
+}
+
 export function JobsPanel() {
   const jobMap = useFleet((s) => s.jobs);
+  const selection = useFleet((s) => s.selection);
   const [creating, setCreating] = useState(false);
   const jobs = Object.values(jobMap).sort((a, b) => b.createdAt - a.createdAt);
   if (creating) return <JobForm onDone={() => setCreating(false)} />;
+
+  // Campaigns (jobs created together) are shown as one card; the rest individually.
+  const groups: { key: string; campaign?: string; jobs: JobView[] }[] = [];
+  for (const j of jobs) {
+    const g = j.campaignId ? groups.find((x) => x.campaign === j.campaignId) : undefined;
+    if (g) g.jobs.push(j);
+    else groups.push({ key: j.campaignId ?? j.id, campaign: j.campaignId, jobs: [j] });
+  }
+  const selectedWithJobs = selection.filter((id) => jobs.some((j) => j.turtleId === id && !['completed', 'cancelled'].includes(j.status)));
+
   return (
     <div className="space-y-2 p-3 text-xs">
       <div className="flex items-center justify-between">
@@ -35,10 +52,69 @@ export function JobsPanel() {
           + New tunnel
         </button>
       </div>
+      {selectedWithJobs.length > 0 && (
+        <div className="flex items-center gap-1 rounded border border-edge bg-panel-2 px-2 py-1">
+          <span className="flex-1 text-dim">Jobs of {selectedWithJobs.length} selected turtle(s):</span>
+          <Btn tone="go" onClick={() => act(api.turtlesJobs(selection, 'start').then((r) => results(r, 'Resumed')))}>
+            Resume
+          </Btn>
+          <Btn onClick={() => act(api.turtlesJobs(selection, 'pause').then((r) => results(r, 'Pausing')))}>Pause</Btn>
+        </div>
+      )}
       {jobs.length === 0 && <p className="text-slate-500">No jobs yet. Create a depot first, then a tunnel job.</p>}
-      {jobs.map((j) => (
-        <JobCard key={j.id} job={j} />
-      ))}
+      {groups.map((g) => (g.campaign ? <CampaignCard key={g.key} id={g.campaign} jobs={g.jobs} /> : <JobCard key={g.key} job={g.jobs[0]} />))}
+    </div>
+  );
+}
+
+function CampaignCard({ id, jobs }: { id: string; jobs: JobView[] }) {
+  const [open, setOpen] = useState(false);
+  const done = jobs.reduce((n, j) => n + j.progress.unitsDone, 0);
+  const total = jobs.reduce((n, j) => n + j.progress.unitsTotal, 0);
+  const count = (st: JobView['status']) => jobs.filter((j) => j.status === st).length;
+  const attention = jobs.filter((j) => j.error).length;
+  const finished = jobs.every((j) => j.status === 'completed' || j.status === 'cancelled');
+  return (
+    <div className="rounded border border-cyan-900/70 bg-panel-2 p-2">
+      <div className="flex items-center gap-2">
+        <button onClick={() => setOpen(!open)} className="text-dim hover:text-ink" aria-label="Show jobs">
+          {open ? '▾' : '▸'}
+        </button>
+        <span className="truncate font-semibold">{jobs[0].campaignName ?? 'Campaign'}</span>
+        <span className="text-[10px] text-dim">
+          {jobs.length} turtles{jobs[0].lane ? ' · split lanes' : ''}
+        </span>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded bg-slate-800">
+        <div className="h-full bg-cyan-500" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
+      </div>
+      <div className="num mt-1 flex flex-wrap gap-x-3 text-[10px] text-dim">
+        {count('running') > 0 && <span className="text-emerald-300">{count('running')} running</span>}
+        {count('pausing') + count('paused') > 0 && <span className="text-amber-300">{count('pausing') + count('paused')} paused</span>}
+        {count('ready') > 0 && <span>{count('ready')} ready</span>}
+        {count('completed') > 0 && <span className="text-sky-300">{count('completed')} done</span>}
+        {attention > 0 && <span className="text-red-300">{attention} need attention</span>}
+        <span>{jobs.reduce((n, j) => n + j.progress.cellsCleared, 0)} cells</span>
+        <span>{jobs.reduce((n, j) => n + j.progress.itemsUnloaded, 0)} items</span>
+      </div>
+      {!finished && (
+        <div className="mt-1.5 flex gap-2">
+          <Btn tone="go" onClick={() => act(api.campaignAction(id, 'start').then((r) => results(r, 'Started')))}>
+            {count('ready') === jobs.length ? 'Start all' : 'Resume all'}
+          </Btn>
+          <Btn onClick={() => act(api.campaignAction(id, 'pause').then((r) => results(r, 'Pausing')))}>Pause all</Btn>
+          <Btn onClick={() => confirm('Cancel every job in this campaign?') && act(api.campaignAction(id, 'cancel').then((r) => results(r, 'Cancelled')))}>Cancel all</Btn>
+        </div>
+      )}
+      {(open || attention > 0) && (
+        <div className="mt-2 space-y-1.5">
+          {jobs
+            .filter((j) => open || j.error)
+            .map((j) => (
+              <JobCard key={j.id} job={j} />
+            ))}
+        </div>
+      )}
     </div>
   );
 }

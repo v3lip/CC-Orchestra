@@ -1,4 +1,4 @@
-import type { BatchView, DepotInput, DepotView, GroupView, JobEstimate, JobInput, JobView, MapBlock, Targets, TurtleView } from '@ccfleet/protocol';
+import type { BatchView, CampaignInput, DepotInput, DepotView, GroupView, JobEstimate, JobInput, JobView, MapBlock, Targets, TurtleView, Vec3 } from '@ccfleet/protocol';
 
 export class HttpError extends Error {
   constructor(
@@ -56,6 +56,10 @@ export const api = {
   pauseJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/pause`, {}),
   cancelJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/cancel`, {}),
   deleteJob: (id: string) => req<{ ok: true }>('DELETE', `/api/jobs/${id}`),
+  createCampaign: (c: CampaignInput) => req<{ campaignId: string; jobs: JobView[]; skipped: string[] }>('POST', '/api/campaigns', c),
+  campaignAction: (id: string, action: 'start' | 'pause' | 'cancel') => req<{ jobId: string; ok: boolean; error?: string }[]>('POST', `/api/campaigns/${id}/${action}`, {}),
+  turtlesJobs: (turtleIds: string[], action: 'start' | 'pause' | 'cancel') => req<{ jobId: string; ok: boolean; error?: string }[]>('POST', '/api/jobs/by-turtles', { turtleIds, action }),
+  goto: (turtleId: string, target: Vec3) => req<{ ok: true }>('POST', '/api/goto', { turtleId, target }),
 
   mapBlocks: (q: { world: string; dimension: string; x0: number; x1: number; z0: number; z1: number; y0: number; y1: number }) =>
     req<{ blocks: MapBlock[]; truncated: boolean }>('GET', `/api/map/blocks?${new URLSearchParams(Object.entries(q).map(([k, v]) => [k, String(v)]))}`),

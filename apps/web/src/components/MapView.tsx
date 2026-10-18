@@ -506,6 +506,20 @@ function drawDepot(ctx: CanvasRenderingContext2D, d: DepotView, toSx: (x: number
       ctx.fillText(letter, toSx(c.x + 0.5), toSy(c.z + 0.5) + 4);
     }
   }
+  for (const w of d.waiting) {
+    ctx.globalAlpha = w.y === y ? 0.9 : 0.35;
+    ctx.strokeStyle = '#67e8f9';
+    ctx.setLineDash([2, 2]);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(toSx(w.x) + 2, toSy(w.z) + 2, s - 4, s - 4);
+    ctx.setLineDash([]);
+    if (s >= 12) {
+      ctx.fillStyle = '#67e8f9';
+      ctx.font = `${Math.min(10, s * 0.5)}px system-ui`;
+      ctx.textAlign = 'center';
+      ctx.fillText('W', toSx(w.x + 0.5), toSy(w.z + 0.5) + 3);
+    }
+  }
   if (s >= 10) {
     ctx.globalAlpha = 0.9;
     ctx.fillStyle = '#67e8f9';

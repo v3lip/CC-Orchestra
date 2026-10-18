@@ -440,6 +440,8 @@ export interface TurtleView {
   pendingStop: boolean;
   /** The job controlling this turtle, if any. */
   job?: { id: string; name: string; status: JobStatus; phase: JobPhase };
+  /** A one-off task such as "go to", if any. */
+  task?: { kind: 'goto'; target: Vec3; note?: string };
   lastSeen?: number;
   groupIds: string[];
   createdAt: number;
@@ -566,6 +568,23 @@ export const JobInput = z.object({
 });
 export type JobInput = z.input<typeof JobInput>;
 
+/**
+ * Several jobs created together. Either explicit jobs (e.g. one tunnel in front of
+ * each turtle) or one tunnel split into side-by-side lanes, one per turtle.
+ * All jobs are validated before any is created.
+ */
+export const CampaignInput = z
+  .object({
+    name: z.string().min(1).max(60),
+    depotId: z.string(),
+    policy: JobPolicy.partial().default({}),
+    start: z.boolean().default(false),
+    jobs: z.array(z.object({ turtleId: z.string(), params: TunnelParams })).min(1).max(64).optional(),
+    split: z.object({ params: TunnelParams, turtleIds: z.array(z.string()).min(1).max(16) }).optional(),
+  })
+  .refine((c) => !!c.jobs !== !!c.split, 'give either jobs or split');
+export type CampaignInput = z.input<typeof CampaignInput>;
+
 export type JobStatus = 'ready' | 'running' | 'pausing' | 'paused' | 'completed' | 'cancelled';
 export type JobPhase = 'idle' | 'traveling' | 'mining' | 'waiting' | 'returning' | 'unloading' | 'refueling' | 'done';
 
@@ -590,6 +609,11 @@ export interface JobView {
   dimension: string;
   depotId: string;
   turtleId: string;
+  /** Set when the job was created as part of a campaign (several turtles at once). */
+  campaignId?: string;
+  campaignName?: string;
+  /** For split tunnels: which lane of how many. */
+  lane?: { index: number; count: number };
   status: JobStatus;
   phase: JobPhase;
   pauseReason?: string;

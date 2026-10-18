@@ -116,6 +116,8 @@ export interface FleetHooks {
   removed?(turtleId: string): void;
   /** Job summary for a turtle's view. */
   jobOf?(turtleId: string): TurtleView['job'];
+  /** One-off task (e.g. go-to) for a turtle's view. */
+  taskOf?(turtleId: string): TurtleView['task'];
   extraInit?(): { jobs: JobView[]; depots: DepotView[] };
 }
 
@@ -299,6 +301,7 @@ export class Fleet {
   // ------------------------------------------------------------ events
 
   log(level: EventView['level'], message: string, turtleId?: string): void {
+    if (this.closed) return;
     const ts = now();
     const r = this.db.prepare('INSERT INTO events (ts, level, turtle_id, message) VALUES (?,?,?,?)').run(ts, level, turtleId ?? null, message);
     this.broadcast({ type: 'event', event: { id: Number(r.lastInsertRowid), ts, level, turtleId, message } });
@@ -325,9 +328,12 @@ export class Fleet {
   view(rec: TurtleRec): TurtleView {
     const connection = this.connection(rec);
     const job = this.hooks.jobOf?.(rec.id);
+    const task = this.hooks.taskOf?.(rec.id);
     let status: DisplayStatus = connection === 'online' ? (rec.state?.activity ?? 'idle') : connection;
     if (connection === 'online' && !rec.state?.hold && job?.status === 'running') {
       status = job.phase === 'returning' ? 'returning' : job.phase === 'unloading' || job.phase === 'refueling' ? 'unloading' : 'working';
+    } else if (connection === 'online' && !rec.state?.hold && task) {
+      status = 'working';
     }
     return {
       id: rec.id,
@@ -344,6 +350,7 @@ export class Fleet {
       queueLength: rec.queue.length + (rec.inflight ? 1 : 0),
       pendingStop: !!rec.pendingStop,
       job,
+      task,
       lastSeen: rec.lastSeen,
       groupIds: [...this.groups.values()].filter((g) => g.memberIds.includes(rec.id)).map((g) => g.id),
       createdAt: rec.createdAt,
@@ -816,6 +823,7 @@ export class Fleet {
    */
   runStep(turtleId: string, op: Op, args: Record<string, unknown>, executor: string): Promise<StepResult> {
     const rec = this.turtles.get(turtleId);
+    if (this.closed) return Promise.resolve({ status: 'undeliverable', reason: 'backend shutting down' });
     if (!rec) return Promise.resolve({ status: 'rejected', code: 'invalid', reason: 'unknown turtle' });
     if (!rec.conn) return Promise.resolve({ status: 'undeliverable', reason: 'turtle offline' });
     if (PHYSICAL_OPS.has(op) && rec.state?.hold) return Promise.resolve({ status: 'rejected', code: 'held', reason: 'turtle is held' });
@@ -850,6 +858,7 @@ export class Fleet {
   }
 
   mapCell(world: string, dimension: string, p: Vec3): MapBlock | undefined {
+    if (this.closed) return undefined;
     const r = this.db
       .prepare('SELECT block, cell, observed_at, source FROM map_blocks WHERE world=? AND dimension=? AND x=? AND z=? AND y=?')
       .get(world, dimension, p.x, p.z, p.y) as Record<string, unknown> | undefined;
@@ -1080,7 +1089,29 @@ export class Fleet {
     return { accepted: out.length, rejected };
   }
 
+  /**
+   * Record observations from a source other than a turtle's own inspection (tests now;
+   * scanner adapters later). No adjacency check: the caller vouches for the data.
+   */
+  importObservations(world: string, dimension: string, blocks: BlockObservation[], source: string): void {
+    const t = now();
+    const up = this.db.prepare(
+      `INSERT INTO map_blocks (world, dimension, x, z, y, block, cell, state_json, observed_at, source) VALUES (?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(world, dimension, x, z, y) DO UPDATE SET block=excluded.block, cell=excluded.cell, state_json=excluded.state_json, observed_at=excluded.observed_at, source=excluded.source`,
+    );
+    const out: MapBlock[] = [];
+    tx(this.db, () => {
+      for (const b of blocks) {
+        const cell = !b.name ? 'empty' : FLUID_BLOCKS.has(b.name) ? 'fluid' : 'solid';
+        up.run(world, dimension, b.x, b.z, b.y, b.name ?? null, cell, b.state ? JSON.stringify(b.state) : null, t, source);
+        out.push({ x: b.x, y: b.y, z: b.z, block: b.name ?? null, cell, observedAt: t, source });
+      }
+    });
+    if (out.length) this.bufferMap(world, dimension, out);
+  }
+
   queryMap(q: { world: string; dimension: string; x0: number; x1: number; z0: number; z1: number; y0: number; y1: number; limit?: number }): { blocks: MapBlock[]; truncated: boolean } {
+    if (this.closed) return { blocks: [], truncated: false };
     const limit = Math.min(q.limit ?? 100_000, 200_000);
     const rows = this.db
       .prepare(

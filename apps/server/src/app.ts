@@ -179,6 +179,20 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
     api.post('/api/jobs/:id/start', async (req) => jobs.start((req.params as { id: string }).id));
     api.post('/api/jobs/:id/pause', async (req) => jobs.pause((req.params as { id: string }).id));
     api.post('/api/jobs/:id/cancel', async (req) => jobs.cancel((req.params as { id: string }).id));
+    api.post('/api/campaigns', async (req) => jobs.createCampaign(req.body));
+    api.post('/api/campaigns/:id/:action', async (req) => {
+      const { id, action } = z.object({ id: z.string(), action: z.enum(['start', 'pause', 'cancel']) }).parse(req.params);
+      return jobs.campaignAction(id, action);
+    });
+    api.post('/api/jobs/by-turtles', async (req) => {
+      const body = z.object({ turtleIds: z.array(z.string()).max(500), action: z.enum(['start', 'pause', 'cancel']) }).parse(req.body);
+      return jobs.turtlesAction(body.turtleIds, body.action);
+    });
+    api.post('/api/goto', async (req) => {
+      const body = z.object({ turtleId: z.string(), target: z.object({ x: z.number().int(), y: z.number().int(), z: z.number().int() }) }).parse(req.body);
+      jobs.goto(body.turtleId, body.target);
+      return { ok: true };
+    });
     api.delete('/api/jobs/:id', async (req) => {
       jobs.deleteJob((req.params as { id: string }).id);
       return { ok: true };

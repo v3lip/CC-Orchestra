@@ -2,13 +2,16 @@
  * Executes one tunnel job on one turtle by issuing atomic commands through the
  * turtle's normal queue. Everything it decides is derived from the turtle's reported
  * state and the observed map, so a run can be stopped at any step and started again
- * from the persisted checkpoint.
+ * from the persisted checkpoint. Movement and traffic rules live in `Mover`.
  */
-import { type Dir, type Heading, type MapBlock, type Op, type TurtleState, type Vec3, FUEL_ITEMS, HEADING_VECTORS, DEFAULT_PROTECTED_BLOCKS } from '@ccfleet/protocol';
-import type { Fleet, StepResult } from '../fleet';
+import { type Dir, type Heading, type TurtleState, type Vec3, FUEL_ITEMS, HEADING_VECTORS } from '@ccfleet/protocol';
+import type { Fleet } from '../fleet';
 import { eq, fmt, inBox, key, manhattan, sliceStations, tunnelBox, tunnelLocal } from './geometry';
-import { planPath, type NavContext } from './nav';
+import { Interrupt, JobError, Mover, isProtectedName, sleep } from './mover';
+import type { Traffic } from './traffic';
 import type { JobManager, JobRec } from './manager';
+
+export { Interrupt, JobError };
 
 /** Jobs rely on the verified drop/suck/inventoryInfo ops and the dig guard added in agent 0.3.0. */
 export function agentSupportsJobs(version: string): boolean {
@@ -18,35 +21,47 @@ export function agentSupportsJobs(version: string): boolean {
   return maj > 0 || min >= 3;
 }
 
-/** The job was paused/cancelled or the turtle became unavailable: stop quietly. */
-export class Interrupt extends Error {}
-/** Something needs the operator: pause with an actionable message. */
-export class JobError extends Error {
-  constructor(
-    public code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-const MAX_REPLANS = 30;
-const MAX_RETRIES_PER_CELL = 24; // gravel/sand columns can refill a cell many times
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const MAX_RETRIES_PER_CELL = 24;
 const DIR_TEXT: Record<Dir, string> = { front: 'in front of', up: 'above', down: 'below' };
 
 export class JobRunner {
-  private unpassable = new Set<string>();
   private cleared = new Set<string>();
   private lastRouteBroadcast = 0;
+  /** Set once the turtle has stood on the dock; the dock is freed when it steps off. */
+  private visitedDock = false;
+  private m: Mover;
   readonly executor: string;
 
   constructor(
     private mgr: JobManager,
     private fleet: Fleet,
+    private traffic: Traffic,
     private job: JobRec,
   ) {
     this.executor = `job:${job.view.id}`;
+    const v = job.view;
+    this.m = new Mover({
+      fleet,
+      traffic,
+      turtleId: v.turtleId,
+      world: v.world,
+      dimension: v.dimension,
+      executor: this.executor,
+      isActive: () => this.v.status === 'running',
+      stopReason: () => this.v.pauseReason ?? 'paused',
+      canDig: (p) => this.inWork(p),
+      extraBlocked: () => this.depotCells(),
+      includeBox: () => tunnelBox(this.v.params),
+      beforeMove: () => this.serviceIfNeeded(),
+      onRoute: (path) => this.publishRoute(path),
+      onEntered: (p) => this.entered(p),
+      onUnbreakable: (p) => {
+        this.v.progress.cellsSkipped++;
+        this.mgr.log('warn', `${this.v.name}: unbreakable block at ${fmt(p)}; skipping it`);
+      },
+      onWait: (note) => this.setNote(note),
+      log: (level, msg) => this.mgr.log(level, msg, this.v.turtleId),
+    });
   }
 
   private get v() {
@@ -62,6 +77,7 @@ export class JobRunner {
   }
 
   async run(): Promise<void> {
+    this.traffic.join(this.v.turtleId, this.fleet.getTurtle(this.v.turtleId)?.name ?? this.v.name, this.v.world, this.v.dimension, this.v.startedAt ?? Date.now());
     try {
       this.ensureReady();
       this.mgr.setPhase(this.job, 'traveling');
@@ -81,33 +97,18 @@ export class JobRunner {
       else if (e instanceof JobError) this.mgr.failed(this.job, e.code, e.message);
       else this.mgr.failed(this.job, 'internal', (e as Error).message ?? String(e));
     } finally {
-      // Paused mid-trip, the turtle may be on the dock or in the shared approach:
-      // keep the dock until it is back in its own tunnel (resuming finishes the trip).
-      if (!this.cp.servicing) this.mgr.releaseDock(this.v.depotId, this.v.turtleId);
+      this.traffic.leave(this.v.turtleId);
+      this.setNote(undefined);
+      // Paused mid-trip the turtle may still be on the dock or a waiting spot: keep them
+      // until it moves on (resuming finishes the trip).
+      if (!this.cp.servicing) {
+        this.mgr.releaseDock(this.v.depotId, this.v.turtleId);
+        this.mgr.releaseSpot(this.v.depotId, this.v.turtleId);
+      }
     }
   }
 
-  // ------------------------------------------------------------------ state helpers
-
-  private turtle(): TurtleState {
-    const t = this.fleet.turtleState(this.v.turtleId);
-    if (!t) throw new Interrupt('turtle removed');
-    if (!t.online) throw new Interrupt('turtle went offline');
-    if (!t.state) throw new JobError('no_state', 'No telemetry from the turtle yet.');
-    return t.state;
-  }
-
-  private pos(): Vec3 {
-    const pose = this.turtle().pose;
-    if (pose.position !== 'known' || !pose.pos) throw new JobError('pose_uncertain', 'Turtle position is not known. Use GPS fix or Calibrate, then resume.');
-    return pose.pos;
-  }
-
-  private heading(): Heading {
-    const pose = this.turtle().pose;
-    if (pose.headingConfidence !== 'known' || pose.heading === undefined) throw new JobError('pose_uncertain', 'Turtle heading is not known. Calibrate it, then resume.');
-    return pose.heading as Heading;
-  }
+  // ------------------------------------------------------------------ helpers
 
   private ensureReady(): void {
     const t = this.fleet.turtleState(this.v.turtleId);
@@ -121,34 +122,19 @@ export class JobRunner {
     if (!agentSupportsJobs(version)) {
       throw new JobError('agent_outdated', `The turtle runs agent ${version || 'unknown'}; jobs need 0.3.0 or newer (verified unloading, dig protection). Run "install" on the turtle (no code needed), then resume.`);
     }
-    this.pos();
-    this.heading();
+    this.m.pos();
+    this.m.heading();
   }
 
-  private async step(op: Op, args: Record<string, unknown> = {}): Promise<StepResult> {
-    if (this.v.status !== 'running') throw new Interrupt(this.v.pauseReason ?? 'paused');
-    const r = await this.fleet.runStep(this.v.turtleId, op, args, this.executor);
-    if (r.status === 'undeliverable' || r.status === 'unknown') throw new Interrupt('turtle went offline');
-    if (r.status === 'cancelled') throw new Interrupt(this.v.pauseReason ?? 'command cancelled');
-    if (r.status === 'rejected' && r.code === 'held') throw new Interrupt('turtle was stopped');
-    if (r.status === 'rejected' || r.status === 'expired') throw new JobError(r.code ?? 'rejected', `${op} was refused: ${r.reason ?? r.status}`);
-    return r;
-  }
-
-  private known(p: Vec3): MapBlock | undefined {
-    return this.fleet.mapCell(this.v.world, this.v.dimension, p);
+  private setNote(note: string | undefined): void {
+    if (this.v.note !== note) {
+      this.v.note = note;
+      this.mgr.broadcast(this.job);
+    }
   }
 
   private inWork(p: Vec3): boolean {
     return !!tunnelLocal(this.v.params, p) && !this.v.exclusions.some((b) => inBox(b, p));
-  }
-
-  private isProtectedName(name: string | null | undefined): boolean {
-    return !!name && DEFAULT_PROTECTED_BLOCKS.some((pat) => name.includes(pat));
-  }
-
-  private canDig(p: Vec3, block: string | null): boolean {
-    return this.inWork(p) && !this.unpassable.has(key(p)) && !this.isProtectedName(block);
   }
 
   private depotCells(): Vec3[] {
@@ -163,63 +149,6 @@ export class JobRunner {
     return [at(d.unloadDir), at(d.fuelDir)].filter((c): c is Vec3 => !!c);
   }
 
-  // ------------------------------------------------------------------ movement
-
-  private async face(h: Heading): Promise<void> {
-    const diff = (h - this.heading() + 4) % 4;
-    if (diff === 0) return;
-    const ops: Op[] = diff === 1 ? ['turnRight'] : diff === 3 ? ['turnLeft'] : ['turnRight', 'turnRight'];
-    for (const op of ops) {
-      const r = await this.step(op);
-      if (r.status !== 'succeeded') throw new JobError(r.code ?? 'failed', `${op} failed: ${r.reason}`);
-    }
-  }
-
-  private navContext(from: Vec3, to: Vec3): NavContext {
-    const margin = 16;
-    const box = tunnelBox(this.v.params);
-    const min = { x: Math.min(from.x, to.x) - margin, y: Math.min(from.y, to.y) - 8, z: Math.min(from.z, to.z) - margin };
-    const max = { x: Math.max(from.x, to.x) + margin, y: Math.max(from.y, to.y) + 8, z: Math.max(from.z, to.z) + margin };
-    // Include the tunnel itself when it is between the two points.
-    for (const a of ['x', 'y', 'z'] as const) {
-      if (box.min[a] >= min[a] - margin && box.max[a] <= max[a] + margin) {
-        min[a] = Math.min(min[a], box.min[a]);
-        max[a] = Math.max(max[a], box.max[a]);
-      }
-    }
-    const rows = this.fleet.queryMap({ world: this.v.world, dimension: this.v.dimension, x0: min.x, x1: max.x, z0: min.z, z1: max.z, y0: min.y, y1: max.y, limit: 200_000 }).blocks;
-    const cells = new Map(rows.map((b) => [key(b), b]));
-    const blocked = new Set<string>(this.unpassable);
-    for (const p of this.fleet.turtlePositions(this.v.world, this.v.dimension, this.v.turtleId)) blocked.add(key(p));
-    for (const p of this.depotCells()) blocked.add(key(p));
-    return { cell: (p) => cells.get(key(p)), blocked, canDig: (p, b) => this.canDig(p, b), bounds: { min, max } };
-  }
-
-  async moveTo(goal: Vec3): Promise<void> {
-    const g = this.known(goal);
-    if (g?.cell === 'solid' && this.isProtectedName(g.block)) {
-      throw new JobError('protected', `Protected block ${g.block} at ${fmt(goal)} is in the way. Remove it or add an exclusion, then resume.`);
-    }
-    for (let attempt = 0; attempt < MAX_REPLANS; attempt++) {
-      const here = this.pos();
-      if (eq(here, goal)) return;
-      const path = planPath(this.navContext(here, goal), here, goal);
-      if (!path) {
-        throw new JobError('no_route', `No known safe route from ${fmt(here)} to ${fmt(goal)}. Drive the turtle closer or clear a path, then resume.`);
-      }
-      this.publishRoute(path);
-      let ok = true;
-      for (const next of path) {
-        if (!(await this.stepInto(next))) {
-          ok = false;
-          break;
-        }
-      }
-      if (ok) return;
-    }
-    throw new JobError('no_route', `Gave up reaching ${fmt(goal)} after ${MAX_REPLANS} re-plans.`);
-  }
-
   private publishRoute(path: Vec3[]): void {
     this.v.route = path.slice(0, 64);
     const t = Date.now();
@@ -229,91 +158,35 @@ export class JobRunner {
     }
   }
 
-  private markCleared(p: Vec3): void {
+  private entered(p: Vec3): void {
     if (this.inWork(p) && !this.cleared.has(key(p))) {
       this.cleared.add(key(p));
       this.v.progress.cellsCleared++;
     }
-  }
-
-  /** Dig one adjacent cell. Returns false if it cannot be cleared (unbreakable). */
-  private async digAt(digOp: 'dig' | 'digUp' | 'digDown', p: Vec3): Promise<boolean> {
-    const r = await this.step(digOp);
-    if (r.status === 'succeeded' || r.code === 'nothing_to_dig') return true;
-    if (r.code === 'protected') throw new JobError('protected', `${r.reason} at ${fmt(p)} inside the job area. Remove it or add an exclusion, then resume.`);
-    if (r.code === 'unbreakable') {
-      this.unpassable.add(key(p));
-      this.v.progress.cellsSkipped++;
-      this.mgr.log('warn', `${this.v.name}: unbreakable block at ${fmt(p)}; skipping it`);
-      return false;
+    const dock = this.mgr.getDepot(this.v.depotId)?.dock;
+    if (dock && eq(p, dock)) this.visitedDock = true;
+    else if (this.visitedDock) {
+      // Stepped off the dock: the next turtle may come in.
+      this.visitedDock = false;
+      this.mgr.releaseDock(this.v.depotId, this.v.turtleId);
     }
-    throw new JobError(r.code ?? 'dig_failed', `Dig at ${fmt(p)} failed: ${r.reason ?? r.status}`);
-  }
-
-  /** Move into an adjacent cell, digging it if this job is allowed to. False = re-plan. */
-  private async stepInto(next: Vec3): Promise<boolean> {
-    const here = this.pos();
-    const dy = next.y - here.y;
-    let moveOp: Op;
-    let digOp: 'dig' | 'digUp' | 'digDown';
-    if (dy !== 0) {
-      moveOp = dy > 0 ? 'up' : 'down';
-      digOp = dy > 0 ? 'digUp' : 'digDown';
-    } else {
-      const h = HEADING_VECTORS.findIndex((v) => v.x === next.x - here.x && v.z === next.z - here.z);
-      if (h < 0) throw new Error(`non-adjacent step ${fmt(here)} -> ${fmt(next)}`);
-      await this.face(h as Heading);
-      moveOp = 'forward';
-      digOp = 'dig';
-    }
-    for (let i = 0; i < MAX_RETRIES_PER_CELL; i++) {
-      const c = this.known(next);
-      if (c?.cell === 'solid') {
-        if (!this.canDig(next, c.block)) return false;
-        if (!(await this.digAt(digOp, next))) return false;
-      }
-      await this.serviceIfNeeded(next);
-      const r = await this.step(moveOp);
-      if (r.status === 'succeeded') {
-        this.markCleared(next);
-        return true;
-      }
-      if (r.code === 'out_of_fuel') throw new JobError('out_of_fuel', 'The turtle ran out of fuel. Add fuel to it, then resume.');
-      if (r.code !== 'obstructed') throw new JobError(r.code ?? 'move_failed', `${moveOp} failed: ${r.reason}`);
-      // Obstructed: find out by what. Agents usually inspect after a blocked move; if the
-      // map still doesn't know, ask explicitly rather than guessing.
-      const occupied = this.fleet.turtlePositions(this.v.world, this.v.dimension, this.v.turtleId).some((p) => eq(p, next));
-      let after = this.known(next);
-      if (!after && !occupied) {
-        await this.step(dy > 0 ? 'inspectUp' : dy < 0 ? 'inspectDown' : 'inspect');
-        after = this.known(next);
-      }
-      if (occupied || !after || after.cell !== 'solid') {
-        // Another turtle or an entity: wait a little, then try another route.
-        if (i >= 4) return false;
-        await sleep(1000);
-        continue;
-      }
-      if (!this.canDig(next, after.block)) return false;
-    }
-    return false;
   }
 
   /** Clear a cell directly above or below the turtle. */
   private async clearVertical(p: Vec3): Promise<void> {
-    const here = this.pos();
+    const here = this.m.pos();
     const digOp = p.y > here.y ? 'digUp' : 'digDown';
     for (let i = 0; i < MAX_RETRIES_PER_CELL; i++) {
-      const c = this.known(p);
+      const c = this.m.known(p);
       if (c && c.cell !== 'solid') {
-        this.markCleared(p);
+        this.entered(p);
         return;
       }
-      if (c && !this.canDig(p, c.block)) {
-        if (this.isProtectedName(c.block)) throw new JobError('protected', `Protected block ${c.block} at ${fmt(p)} inside the job area. Remove it or add an exclusion, then resume.`);
+      if (c && (isProtectedName(c.block) || !this.inWork(p) || this.m.unpassable.has(key(p)))) {
+        if (isProtectedName(c.block)) throw new JobError('protected', `Protected block ${c.block} at ${fmt(p)} inside the job area. Remove it or add an exclusion, then resume.`);
         return; // excluded or unbreakable: leave it
       }
-      if (!(await this.digAt(digOp, p))) return;
+      if (!(await this.m.digAt(digOp, p))) return;
       await this.serviceIfNeeded();
       // The agent re-inspects after digging; gravel may have refilled the cell.
     }
@@ -325,7 +198,7 @@ export class JobRunner {
   private async mineSlice(d: number): Promise<void> {
     for (const st of sliceStations(this.v.params, d)) {
       if (!this.inWork(st.pos)) continue;
-      await this.moveTo(st.pos);
+      await this.m.moveTo(st.pos);
       for (const c of st.extra) if (this.inWork(c)) await this.clearVertical(c);
     }
   }
@@ -346,62 +219,80 @@ export class JobRunner {
 
   /** Burn fuel carried in the fuel slot until `target` (true if the level rose). */
   private async burnCarriedFuel(target: number): Promise<boolean> {
-    const st = this.turtle();
+    const st = this.m.turtle();
     const slot = this.v.policy.fuelSlot;
     if (st.fuel === 'unlimited' || slot === 0) return false;
     const item = st.inventory.find((i) => i.slot === slot);
     if (!item || !FUEL_ITEMS.has(item.name) || st.fuel >= target) return false;
     const before = st.fuel;
-    await this.step('select', { slot });
+    await this.m.step('select', { slot });
     const n = Math.min(item.count, Math.max(1, Math.ceil((target - st.fuel) / 80)));
-    await this.step('refuel', { count: n });
-    await this.step('select', { slot: 1 });
-    const after = this.turtle().fuel;
+    await this.m.step('refuel', { count: n });
+    await this.m.step('select', { slot: 1 });
+    const after = this.m.turtle().fuel;
     return typeof after === 'number' && after > before;
   }
 
-  /**
-   * Check inventory and fuel; go to the depot if needed. `next` is the cell the turtle
-   * is about to enter (resume there afterwards).
-   */
-  private async serviceIfNeeded(_next?: Vec3): Promise<void> {
+  /** Check inventory and fuel; go to the depot if needed (then come back here). */
+  private async serviceIfNeeded(): Promise<void> {
     if (this.cp.servicing) return;
-    let st = this.turtle();
+    let st = this.m.turtle();
     const reason = this.freeSlots(st) <= this.v.policy.minFreeSlots ? 'inventory' : undefined;
     let fuelLow = false;
     if (typeof st.fuel === 'number') {
-      const need = this.costBetween(this.pos(), this.depot.dock) + this.v.policy.fuelReserve;
+      const need = this.costBetween(this.m.pos(), this.depot.dock) + this.v.policy.fuelReserve;
       if (st.fuel < need) {
         await this.burnCarriedFuel(need + 200);
-        st = this.turtle();
+        st = this.m.turtle();
         fuelLow = typeof st.fuel === 'number' && st.fuel < need;
       }
     }
     if (!reason && !fuelLow) return;
-    this.mgr.log('info', `${this.v.name}: returning to the depot (${reason === 'inventory' ? 'inventory nearly full' : 'fuel low'})`);
+    this.mgr.log('info', `${this.v.name}: returning to the depot (${reason === 'inventory' ? 'inventory nearly full' : 'fuel low'})`, this.v.turtleId);
     await this.service(false);
   }
 
   /**
-   * Depot trip. The dock and the way to it are shared, so the turtle takes the dock
-   * before leaving its tunnel and keeps it until it is back inside: one turtle on the
-   * approach at a time, and nobody meets head-on there. Others wait in their tunnels.
+   * Get onto the dock. If another turtle has it, wait on a free waiting spot (or where
+   * we are), stepping aside if we are in someone's way, until it is our turn.
    */
+  private async goToDock(): Promise<void> {
+    const depot = this.depot;
+    for (;;) {
+      this.m.checkActive();
+      const holder = this.mgr.tryLockDock(depot.id, this.v.turtleId);
+      if (!holder) break;
+      this.mgr.setPhase(this.job, 'waiting');
+      let spot = this.mgr.spotOf(depot.id, this.v.turtleId);
+      if (!spot) {
+        spot = this.mgr.claimSpot(depot.id, this.v.turtleId, this.m.pos());
+        if (spot) {
+          this.setNote(`dock in use by ${holder}: going to waiting spot ${fmt(spot)}`);
+          await this.m.moveTo(spot);
+        }
+      }
+      this.setNote(`waiting for the dock (in use by ${holder})${spot ? ` at spot ${fmt(spot)}` : ''}`);
+      // Don't block others while we wait.
+      const waiter = this.traffic.waitingFor(this.v.turtleId)[0];
+      if (waiter) await this.m.yieldTo(waiter);
+      await sleep(400);
+    }
+    this.mgr.releaseSpot(depot.id, this.v.turtleId);
+    this.setNote(undefined);
+    this.mgr.setPhase(this.job, 'returning');
+    await this.m.moveTo(depot.dock);
+    this.visitedDock = true;
+  }
+
   private async service(final: boolean): Promise<void> {
-    if (!this.cp.resume && !final) this.cp.resume = { pos: this.pos(), heading: this.heading() };
+    if (!this.cp.resume && !final) this.cp.resume = { pos: this.m.pos(), heading: this.m.heading() };
     this.cp.servicing = final ? 'finish' : 'trip';
     this.mgr.save(this.job);
 
     const depot = this.depot;
-    await this.mgr.acquireDock(depot.id, this.v.turtleId, () => this.v.status === 'running', (holder) => {
-      this.v.note = `waiting for the dock (in use by ${holder})`;
-      this.mgr.setPhase(this.job, 'waiting');
-      this.mgr.broadcast(this.job);
-    });
-    this.v.note = undefined;
     this.mgr.setPhase(this.job, 'returning');
-    await this.moveTo(depot.dock);
-    await this.face(depot.dockHeading as Heading);
+    await this.goToDock();
+    await this.m.face(depot.dockHeading as Heading);
 
     this.mgr.setPhase(this.job, 'unloading');
     await this.unload();
@@ -413,7 +304,7 @@ export class JobRunner {
       // Don't stay parked on a dock other jobs still need: wait in our own tunnel.
       if (this.mgr.depotShared(depot.id, this.v.id)) {
         this.mgr.setPhase(this.job, 'traveling');
-        await this.moveTo(this.v.params.origin);
+        await this.m.moveTo(this.v.params.origin);
       }
       this.cp.servicing = undefined;
       this.mgr.save(this.job);
@@ -426,48 +317,48 @@ export class JobRunner {
     await this.returnToWork();
   }
 
-  /** Second half of a trip: back to the saved position, then free the dock. */
+  /** Second half of a trip: back to the saved position. The dock is freed on the way out. */
   private async returnToWork(): Promise<void> {
-    const depot = this.depot;
-    await this.mgr.acquireDock(depot.id, this.v.turtleId, () => this.v.status === 'running');
+    const dock = this.mgr.getDepot(this.v.depotId)?.dock;
+    if (dock && eq(this.m.pos(), dock)) this.visitedDock = true;
     if (this.cp.resume) {
       this.mgr.setPhase(this.job, 'traveling');
-      await this.moveTo(this.cp.resume.pos);
-      await this.face(this.cp.resume.heading as Heading);
+      await this.m.moveTo(this.cp.resume.pos);
+      await this.m.face(this.cp.resume.heading as Heading);
       this.cp.resume = undefined;
     }
     this.cp.servicing = undefined;
     this.mgr.save(this.job);
-    this.mgr.releaseDock(depot.id, this.v.turtleId);
+    this.mgr.releaseDock(this.v.depotId, this.v.turtleId);
     this.mgr.setPhase(this.job, 'mining');
   }
 
   private async unload(): Promise<void> {
     const dir = this.depot.unloadDir;
     const where = `${DIR_TEXT[dir]} the dock at ${fmt(this.depot.dock)}`;
-    const info = await this.step('inventoryInfo', { dir });
+    const info = await this.m.step('inventoryInfo', { dir });
     if (info.status !== 'succeeded') {
       throw new JobError('chest_missing', `No chest ${where}. Place one there (nothing was dropped), then resume.`);
     }
     const { fuelSlot, keepSlots } = this.v.policy;
-    const items = [...this.turtle().inventory].sort((a, b) => a.slot - b.slot);
+    const items = [...this.m.turtle().inventory].sort((a, b) => a.slot - b.slot);
     for (const it of items) {
       if (keepSlots.includes(it.slot)) continue;
       if (it.slot === fuelSlot && FUEL_ITEMS.has(it.name)) continue;
-      const r = await this.step('drop', { dir, slot: it.slot });
+      const r = await this.m.step('drop', { dir, slot: it.slot });
       if (r.code === 'no_inventory') throw new JobError('chest_missing', `The chest ${where} disappeared while unloading. Nothing was dropped into the world. Replace it, then resume.`);
       if (r.code === 'inventory_full') throw new JobError('chest_full', `The chest ${where} is full. Empty it, then resume.`);
       if (r.status !== 'succeeded') throw new JobError(r.code ?? 'unload_failed', `Unloading slot ${it.slot} failed: ${r.reason}`);
       const data = r.data as { dropped?: number; partial?: boolean; verified?: boolean } | undefined;
       this.v.progress.itemsUnloaded += data?.dropped ?? 0;
-      if (data?.verified === false) this.mgr.log('warn', `${this.v.name}: chest count did not match after unloading slot ${it.slot} (a hopper draining it?)`);
+      if (data?.verified === false) this.mgr.log('warn', `${this.v.name}: chest count did not match after unloading slot ${it.slot} (a hopper draining it?)`, this.v.turtleId);
       if (data?.partial) throw new JobError('chest_full', `The chest ${where} filled up while unloading. Empty it, then resume.`);
     }
-    await this.step('select', { slot: 1 });
+    await this.m.step('select', { slot: 1 });
   }
 
   private async refuel(final: boolean): Promise<void> {
-    let st = this.turtle();
+    let st = this.m.turtle();
     if (st.fuel === 'unlimited') return;
     const limit = typeof st.fuelLimit === 'number' ? st.fuelLimit : Infinity;
     const target = Math.min(this.v.policy.refuelTarget, limit);
@@ -479,31 +370,31 @@ export class JobRunner {
     if (typeof st.fuel === 'number' && st.fuel < target && depot.fuelDir) {
       const slot = this.v.policy.fuelSlot || 1;
       for (let i = 0; i < 6; i++) {
-        st = this.turtle();
+        st = this.m.turtle();
         if (typeof st.fuel !== 'number' || st.fuel >= target) break;
         const want = Math.min(64, Math.max(1, Math.ceil((target - st.fuel) / 80)));
-        const r = await this.step('suck', { dir: depot.fuelDir, slot, count: want });
+        const r = await this.m.step('suck', { dir: depot.fuelDir, slot, count: want });
         if (r.code === 'no_inventory') throw new JobError('fuel_chest_missing', `No fuel chest ${DIR_TEXT[depot.fuelDir]} the dock. Place one or remove it from the depot settings, then resume.`);
         const data = r.data as { taken?: number; slots?: { slot: number; name: string; count: number }[] } | undefined;
         if (!data?.taken) break; // empty
         for (const s of data.slots ?? []) {
-          await this.step('select', { slot: s.slot });
-          const burn = await this.step('refuel');
+          await this.m.step('select', { slot: s.slot });
+          const burn = await this.m.step('refuel');
           if (burn.status !== 'succeeded') {
             // Not fuel: put it back where it came from (verified), then tell the operator.
-            await this.step('drop', { dir: depot.fuelDir, slot: s.slot });
+            await this.m.step('drop', { dir: depot.fuelDir, slot: s.slot });
             throw new JobError('fuel_chest_contaminated', `The fuel chest contains ${s.name}, which is not fuel. Remove it, then resume.`);
           }
         }
       }
-      await this.step('select', { slot: 1 });
+      await this.m.step('select', { slot: 1 });
     }
 
     // 2. Only burn the carried reserve if that is the only way to continue.
-    st = this.turtle();
+    st = this.m.turtle();
     if (typeof st.fuel === 'number' && st.fuel < need) await this.burnCarriedFuel(need + 200);
 
-    st = this.turtle();
+    st = this.m.turtle();
     if (typeof st.fuel === 'number' && st.fuel < need) {
       const where = this.v.policy.fuelSlot ? `slot ${this.v.policy.fuelSlot}` : 'the turtle';
       throw new JobError('insufficient_fuel', `Fuel ${st.fuel} is below the estimated ${need} needed to continue. Put fuel in ${where}${depot.fuelDir ? ' or the fuel chest' : ''}, then resume.`);
