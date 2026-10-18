@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BatchView, DepotView, EventView, GroupView, JobView, MapBlock, Targets, TunnelParams, TurtleView, UiServerMsg } from '@ccfleet/protocol';
+import type { BatchView, ChunkNeed, DepotView, EventView, ForcedChunk, GroupView, JobView, MapBlock, Targets, TunnelParams, TurtleView, UiServerMsg } from '@ccfleet/protocol';
 import { api } from './api';
 
 export interface Toast {
@@ -32,6 +32,14 @@ interface FleetState {
   /** Show the chunk grid and which chunks turtles keep loaded. */
   showChunks: boolean;
   setShowChunks(v: boolean): void;
+  /** Chunks the operator marked as force-loaded (FTB Chunks etc.). */
+  forcedChunks: ForcedChunk[];
+  /** Map clicks toggle "force-loaded" on chunks instead of selecting turtles. */
+  markChunks: boolean;
+  setMarkChunks(v: boolean): void;
+  /** Chunks the job being drafted would need. */
+  draftChunks?: ChunkNeed[];
+  setDraftChunks(c: ChunkNeed[] | undefined): void;
   /** Tunnel being drafted in the job form, previewed on the map. */
   jobDraft?: TunnelParams[];
   setRightTab(t: FleetState['rightTab']): void;
@@ -68,7 +76,11 @@ export const useFleet = create<FleetState>((set, get) => ({
   depots: {},
   rightTab: 'turtle',
   showChunks: true,
-  setShowChunks: (showChunks) => set({ showChunks }),
+  setShowChunks: (showChunks) => set({ showChunks, ...(showChunks ? {} : { markChunks: false }) }),
+  forcedChunks: [],
+  markChunks: false,
+  setMarkChunks: (markChunks) => set({ markChunks, ...(markChunks ? { showChunks: true } : {}) }),
+  setDraftChunks: (draftChunks) => set({ draftChunks }),
   setRightTab: (rightTab) => set({ rightTab }),
   setJobDraft: (jobDraft) => set({ jobDraft }),
 
@@ -129,6 +141,7 @@ function apply(m: UiServerMsg) {
         selection,
         jobs: Object.fromEntries((m.jobs ?? []).map((j) => [j.id, j])),
         depots: Object.fromEntries((m.depots ?? []).map((d) => [d.id, d])),
+        forcedChunks: m.forcedChunks ?? [],
       });
       // Default the map to where the turtles are.
       if (!Object.keys(s.turtles).length && m.turtles.length) {
@@ -163,6 +176,9 @@ function apply(m: UiServerMsg) {
     }
     case 'event':
       useFleet.setState({ events: [m.event, ...s.events].slice(0, 500) });
+      break;
+    case 'forced_chunks':
+      useFleet.setState({ forcedChunks: m.chunks });
       break;
     case 'job':
       useFleet.setState({ jobs: { ...s.jobs, [m.job.id]: m.job } });

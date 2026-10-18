@@ -1,5 +1,15 @@
 # Progress notes
 
+## Chunk borders: force-loaded chunks (2026-10-18)
+
+In-game, a turtle with a Chunk Controller went offline exactly as it stepped from chunk (−15,−14) into the next one on its way home. The backend saw a clean socket close (the computer shut down, not a timeout), and it came back a minute later when the chunk loaded again. Minecraft logged nothing. Conclusion: the Controller can't carry a turtle across chunk borders; the chunks a job uses must be force-loaded another way (FTB Chunks).
+
+- **Mark force-loaded chunks** on the map (**▦ Chunks → Mark force-loaded…**, click to toggle). Stored in SQLite (migration 3) and shared live. CC Fleet can't detect FTB Chunks' force-loads itself.
+- **Chunks a job needs:** the estimate returns the tunnel footprint, the dock, and the chunks on the line between them, with marked/unmarked status. The form outlines unmarked ones in red and warns.
+- **Crossing diagnosis:** if a job's turtle disconnects while about to cross, or just after crossing, into an unmarked chunk, the job pauses with *went offline moving from chunk A into chunk B, which probably isn't loaded…*. Routes now include the start cell so "just crossed" is recognised.
+- Docs: why the Controller isn't enough, FTB Chunks setup, and the Esc/alt-tab pause gotcha (F3+P).
+- Tests: 58 (estimate chunk coverage and marking; diagnosis when the link drops at a border).
+
 ## Milestone 4 — multi-turtle scheduling, traffic, depot queues ✅ (2026-10-18; in-game check pending)
 
 **Implemented**
@@ -30,7 +40,7 @@ Also clicked through on a test instance: a 3-turtle shared tunnel (lanes preview
 - Map **▦ Chunks** overlay: chunk grid; "kept loaded" (online chunky turtle), "loaded now" (an online turtle is active there), and "chunky turtle offline" (last known chunk). Chunks loaded by players or other mods (FTB Chunks) aren't visible and the legend says so.
 - `npm run sim -- --chunky` equips simulated turtles with a Controller.
 - Tests: 49 (agent reports upgrades; estimate warning).
-- Not verified in-game: that a chunky turtle keeps working across chunk borders with no player near (checklist step 17).
+- **In-game result:** a chunky turtle shut down when it crossed into the next chunk with no player near. It works within one chunk but can't carry a turtle across borders (probably because neighbouring chunks don't tick block entities on 1.16). See the follow-up below.
 
 ## Milestone 4, part 1 — several turtles, one depot (2026-10-18)
 

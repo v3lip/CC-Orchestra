@@ -61,6 +61,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
   const selection = useFleet((s) => s.selection);
   const focusId = useFleet((s) => s.focusId);
   const setJobDraft = useFleet((s) => s.setJobDraft);
+  const setDraftChunks = useFleet((s) => s.setDraftChunks);
   const depots = Object.values(depotMap);
   const multi = selection.length > 1;
 
@@ -228,6 +229,9 @@ export function JobForm({ onDone }: { onDone: () => void }) {
             note: rs[0].estimate.note,
             warnings: [...new Set(rs.flatMap((r) => r.warnings))],
           });
+          const needed = new Map<string, { cx: number; cz: number; forced: boolean }>();
+          for (const r of rs) for (const c of r.chunks) needed.set(`${c.cx},${c.cz}`, c);
+          setDraftChunks([...needed.values()]);
           setErr(undefined);
         },
         (e2) => setErr((e2 as Error).message),
@@ -235,7 +239,13 @@ export function JobForm({ onDone }: { onDone: () => void }) {
     }, 250);
     return () => clearTimeout(t);
   }, [inputs, drafts, v.depotId, setJobDraft]);
-  useEffect(() => () => setJobDraft(undefined), [setJobDraft]);
+  useEffect(
+    () => () => {
+      setJobDraft(undefined);
+      setDraftChunks(undefined);
+    },
+    [setJobDraft, setDraftChunks],
+  );
 
   const create = async (start: boolean) => {
     if (!inputs.length) return setErr('Nothing to create: check the turtles and sizes.');

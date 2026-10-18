@@ -172,7 +172,7 @@ export class Mover {
         throw new JobError('no_route', `No known safe route from ${fmt(here)} to ${fmt(goal)}. Drive the turtle closer or clear a path, then resume.`);
       }
       this.o.traffic.setRoute(this.o.turtleId, path);
-      this.o.onRoute?.(path);
+      this.o.onRoute?.([here, ...path]); // with the start cell, so "just crossed into" can be told
       let ok = true;
       for (const next of path) {
         if (!(await this.stepInto(next))) {

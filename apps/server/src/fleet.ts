@@ -17,6 +17,7 @@ import {
   type DisplayStatus,
   type EventView,
   type DepotView,
+  type ForcedChunk,
   type GroupView,
   type JobView,
   type MapBlock,
@@ -118,7 +119,7 @@ export interface FleetHooks {
   jobOf?(turtleId: string): TurtleView['job'];
   /** One-off task (e.g. go-to) for a turtle's view. */
   taskOf?(turtleId: string): TurtleView['task'];
-  extraInit?(): { jobs: JobView[]; depots: DepotView[] };
+  extraInit?(): { jobs: JobView[]; depots: DepotView[]; forcedChunks: ForcedChunk[] };
 }
 
 export interface FleetOptions {
@@ -225,7 +226,7 @@ export class Fleet {
       groups: [...this.groups.values()],
       batches: [...this.batches.values()].sort((a, b) => b.createdAt - a.createdAt),
       events: this.recentEvents(200),
-      ...(this.hooks.extraInit?.() ?? { jobs: [], depots: [] }),
+      ...(this.hooks.extraInit?.() ?? { jobs: [], depots: [], forcedChunks: [] }),
     };
   }
 

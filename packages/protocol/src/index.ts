@@ -481,7 +481,7 @@ export interface Targets {
 }
 
 export type UiServerMsg =
-  | { type: 'init'; turtles: TurtleView[]; groups: GroupView[]; batches: BatchView[]; events: EventView[]; jobs: JobView[]; depots: DepotView[] }
+  | { type: 'init'; turtles: TurtleView[]; groups: GroupView[]; batches: BatchView[]; events: EventView[]; jobs: JobView[]; depots: DepotView[]; forcedChunks: ForcedChunk[] }
   | { type: 'turtle'; turtle: TurtleView }
   | { type: 'turtle_removed'; id: string }
   | { type: 'groups'; groups: GroupView[] }
@@ -491,7 +491,8 @@ export type UiServerMsg =
   | { type: 'job'; job: JobView }
   | { type: 'job_removed'; id: string }
   | { type: 'depot'; depot: DepotView }
-  | { type: 'depot_removed'; id: string };
+  | { type: 'depot_removed'; id: string }
+  | { type: 'forced_chunks'; chunks: ForcedChunk[] };
 
 // ---------------------------------------------------------------- depots & jobs
 
@@ -584,6 +585,26 @@ export const CampaignInput = z
   })
   .refine((c) => !!c.jobs !== !!c.split, 'give either jobs or split');
 export type CampaignInput = z.input<typeof CampaignInput>;
+
+/**
+ * A chunk the operator says is kept loaded by something CC Fleet can't see (e.g. FTB
+ * Chunks force-loading). A Chunk Controller only keeps the turtle's own chunk active:
+ * a turtle that steps into a chunk nothing else keeps loaded stops.
+ */
+export interface ForcedChunk {
+  world: string;
+  dimension: string;
+  cx: number;
+  cz: number;
+  createdAt: number;
+}
+
+/** Chunks a job will need, and whether each is marked as force-loaded. */
+export interface ChunkNeed {
+  cx: number;
+  cz: number;
+  forced: boolean;
+}
 
 export type JobStatus = 'ready' | 'running' | 'pausing' | 'paused' | 'completed' | 'cancelled';
 export type JobPhase = 'idle' | 'traveling' | 'mining' | 'waiting' | 'returning' | 'unloading' | 'refueling' | 'done';

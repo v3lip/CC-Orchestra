@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DepotView, JobView, TunnelParams, TurtleView } from '@ccfleet/protocol';
 import { HEADING_VECTORS } from '@ccfleet/protocol';
 import { mapCache, useFleet } from '../lib/store';
+import { api } from '../lib/api';
 import { STATUS_COLOR, blockColor, isChunky, shortItem, statusOf } from '../lib/status';
 
 interface Camera {
@@ -38,6 +39,9 @@ export function MapView() {
   const depots = useFleet((s) => s.depots);
   const jobDraft = useFleet((s) => s.jobDraft);
   const showChunks = useFleet((s) => s.showChunks);
+  const forcedChunks = useFleet((s) => s.forcedChunks);
+  const markChunks = useFleet((s) => s.markChunks);
+  const draftChunks = useFleet((s) => s.draftChunks);
 
   const visibleTurtles = Object.values(turtles).filter((t) => t.world === world && t.dimension === dimension && t.state?.pose.pos);
 
@@ -136,7 +140,10 @@ export function MapView() {
     ctx.lineTo(w, toSy(0));
     ctx.stroke();
 
-    if (showChunks) drawChunks(ctx, visibleTurtles, toSx, toSy, s, w, h, x0, x1, z0, z1);
+    if (showChunks) {
+      drawChunks(ctx, visibleTurtles, toSx, toSy, s, w, h, x0, x1, z0, z1);
+      drawMarkedChunks(ctx, forcedChunks.filter((c) => c.world === world && c.dimension === dimension), draftChunks ?? [], toSx, toSy, s);
+    }
 
     // Depots, job volumes, planned routes.
     for (const d of Object.values(depots)) if (d.world === world && d.dimension === dimension) drawDepot(ctx, d, toSx, toSy, s, y);
@@ -233,7 +240,14 @@ export function MapView() {
     if (!d || d.kind !== 'box') return redraw.current();
     const st = useFleet.getState();
     const moved = Math.abs(d.ex - d.sx) + Math.abs(d.ey - d.sy) > 4;
-    if (!moved) {
+    if (!moved && st.markChunks) {
+      // Mark/unmark the chunk under the cursor as force-loaded.
+      const p = toWorld(e.clientX, e.clientY);
+      const cx = Math.floor(p.x / 16);
+      const cz = Math.floor(p.z / 16);
+      const forced = !st.forcedChunks.some((c) => c.world === st.world && c.dimension === st.dimension && c.cx === cx && c.cz === cz);
+      api.setForcedChunk({ world: st.world, dimension: st.dimension, cx, cz, forced }).catch((err) => st.toast('error', (err as Error).message));
+    } else if (!moved) {
       const t = turtleAt(e.clientX, e.clientY);
       if (t) st.select([t.id], e.shiftKey || e.ctrlKey ? 'toggle' : 'replace');
       else if (!d.additive) st.select([]);
@@ -286,7 +300,7 @@ export function MapView() {
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden select-none">
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 cursor-crosshair"
+        className={`absolute inset-0 ${markChunks ? 'cursor-cell' : 'cursor-crosshair'}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -587,7 +601,7 @@ function drawChunks(
     ctx.stroke();
   }
   const style: Record<ChunkState, { fill: string; stroke: string; dash: number[]; label: string }> = {
-    kept: { fill: 'rgba(74,222,128,0.10)', stroke: 'rgba(74,222,128,0.75)', dash: [], label: 'kept loaded' },
+    kept: { fill: 'rgba(74,222,128,0.10)', stroke: 'rgba(74,222,128,0.75)', dash: [], label: 'kept loaded (its own chunk only)' },
     active: { fill: 'rgba(56,189,248,0.06)', stroke: 'rgba(56,189,248,0.5)', dash: [4, 3], label: 'loaded (turtle active)' },
     lastKept: { fill: 'rgba(251,191,36,0.06)', stroke: 'rgba(251,191,36,0.7)', dash: [6, 4], label: 'chunky turtle offline' },
   };
@@ -615,15 +629,26 @@ function drawChunks(
 function ChunkToggle() {
   const show = useFleet((s) => s.showChunks);
   const set = useFleet((s) => s.setShowChunks);
+  const mark = useFleet((s) => s.markChunks);
+  const setMark = useFleet((s) => s.setMarkChunks);
   return (
     <div className="absolute right-3 top-14 flex flex-col items-end gap-1 text-[10px]">
-      <button
-        onClick={() => set(!show)}
-        className={`rounded border px-2 py-0.5 ${show ? 'border-emerald-700 bg-emerald-950/70 text-emerald-200' : 'border-edge bg-black/60 text-dim'}`}
-        title="Chunk grid and chunks turtles keep loaded"
-      >
-        ▦ Chunks {show ? 'on' : 'off'}
-      </button>
+      <div className="flex gap-1">
+        <button
+          onClick={() => setMark(!mark)}
+          className={`rounded border px-2 py-0.5 ${mark ? 'border-violet-500 bg-violet-900/80 text-violet-100' : 'border-edge bg-black/60 text-dim'}`}
+          title="Click chunks on the map to mark/unmark them as force-loaded (e.g. with FTB Chunks). CC Fleet can't detect that itself."
+        >
+          {mark ? '✓ Click chunks to mark' : 'Mark force-loaded…'}
+        </button>
+        <button
+          onClick={() => set(!show)}
+          className={`rounded border px-2 py-0.5 ${show ? 'border-emerald-700 bg-emerald-950/70 text-emerald-200' : 'border-edge bg-black/60 text-dim'}`}
+          title="Chunk grid and chunks turtles keep loaded"
+        >
+          ▦ Chunks {show ? 'on' : 'off'}
+        </button>
+      </div>
       {show && (
         <div className="pointer-events-none max-w-56 space-y-0.5 rounded bg-black/60 px-2 py-1 text-dim">
           <div>
@@ -635,9 +660,54 @@ function ChunkToggle() {
           <div>
             <span className="text-amber-300">▢</span> chunky turtle offline
           </div>
+          <div>
+            <span className="text-violet-300">■</span> marked force-loaded (by you)
+          </div>
+          <div>
+            <span className="text-rose-300">▢</span> a draft job needs it, not marked
+          </div>
+          <div className="text-slate-400">A Chunk Controller covers only the turtle's own chunk: chunks a job crosses must be loaded some other way.</div>
           <div className="text-slate-500">Chunks loaded by players or other mods aren't shown.</div>
         </div>
       )}
     </div>
   );
+}
+
+/** Chunks marked force-loaded by the operator, and chunks a draft job still needs. */
+function drawMarkedChunks(
+  ctx: CanvasRenderingContext2D,
+  forced: { cx: number; cz: number }[],
+  needed: { cx: number; cz: number; forced: boolean }[],
+  toSx: (x: number) => number,
+  toSy: (z: number) => number,
+  s: number,
+) {
+  ctx.save();
+  for (const c of forced) {
+    const sx = toSx(c.cx * 16);
+    const sy = toSy(c.cz * 16);
+    ctx.fillStyle = 'rgba(167,139,250,0.10)';
+    ctx.fillRect(sx, sy, 16 * s, 16 * s);
+    ctx.strokeStyle = 'rgba(167,139,250,0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(sx + 1.5, sy + 1.5, 16 * s - 3, 16 * s - 3);
+    if (16 * s >= 70) {
+      ctx.fillStyle = 'rgba(196,181,253,0.9)';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'left';
+      ctx.fillText(`chunk ${c.cx},${c.cz} · force-loaded (marked)`, sx + 4, sy + 16 * s - 6);
+    }
+  }
+  for (const c of needed) {
+    if (c.forced) continue;
+    const sx = toSx(c.cx * 16);
+    const sy = toSy(c.cz * 16);
+    ctx.strokeStyle = 'rgba(251,113,133,0.85)';
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx + 3, sy + 3, 16 * s - 6, 16 * s - 6);
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
 }

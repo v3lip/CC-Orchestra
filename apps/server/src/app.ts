@@ -179,6 +179,11 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
     api.post('/api/jobs/:id/start', async (req) => jobs.start((req.params as { id: string }).id));
     api.post('/api/jobs/:id/pause', async (req) => jobs.pause((req.params as { id: string }).id));
     api.post('/api/jobs/:id/cancel', async (req) => jobs.cancel((req.params as { id: string }).id));
+    api.get('/api/forced-chunks', async () => jobs.listForced());
+    api.post('/api/forced-chunks', async (req) => {
+      const b = z.object({ world: z.string().min(1).max(40), dimension: z.string().min(1).max(80), cx: z.number().int(), cz: z.number().int(), forced: z.boolean() }).parse(req.body);
+      return jobs.setForced(b.world, b.dimension, b.cx, b.cz, b.forced);
+    });
     api.post('/api/campaigns', async (req) => jobs.createCampaign(req.body));
     api.post('/api/campaigns/:id/:action', async (req) => {
       const { id, action } = z.object({ id: z.string(), action: z.enum(['start', 'pause', 'cancel']) }).parse(req.params);

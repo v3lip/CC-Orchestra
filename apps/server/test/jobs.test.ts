@@ -362,6 +362,41 @@ describe('chunk loading', () => {
   });
 });
 
+describe('chunk borders', () => {
+  it('the estimate lists the chunks a job needs and warns about unmarked ones', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world);
+    const long = tunnel(t.turtleId!, depot.id, { length: 20 }); // x 2..21 crosses x=16
+    const e1 = server.jobs.estimate(long);
+    expect(e1.chunks.map((c) => `${c.cx},${c.cz}`).sort()).toEqual(['0,0', '1,0']);
+    expect(e1.warnings.some((w) => w.includes("aren't marked force-loaded"))).toBe(true);
+    for (const c of e1.chunks) server.jobs.setForced('sim', 'minecraft:overworld', c.cx, c.cz, true);
+    const e2 = server.jobs.estimate(long);
+    expect(e2.chunks.every((c) => c.forced)).toBe(true);
+    expect(e2.warnings.some((w) => w.includes("aren't marked force-loaded"))).toBe(false);
+  });
+
+  it('going offline while crossing into an unmarked chunk is diagnosed as such', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world);
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 20 }));
+    server.jobs.start(job.id);
+    // Drop the link the moment the turtle steps into the next chunk (x=16), as an
+    // unloaded chunk would in-game.
+    let dropped = false;
+    const watch = setInterval(() => {
+      if (!dropped && t.body.pos.x === 16) {
+        dropped = true;
+        t.stop();
+      }
+    }, 1);
+    const done = await finish(server, job.id);
+    clearInterval(watch);
+    expect(done.status).toBe('paused');
+    expect(done.pauseReason).toMatch(/from chunk 0,0 into chunk 1,0, which probably isn't loaded/);
+  });
+});
+
 describe('agent version gate', () => {
   it('jobs need agent 0.3.0+ (verified unloading, dig protection)', async () => {
     const { agentSupportsJobs } = await import('../src/jobs/runner');

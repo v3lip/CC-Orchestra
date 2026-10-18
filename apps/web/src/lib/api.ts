@@ -1,4 +1,4 @@
-import type { BatchView, CampaignInput, DepotInput, DepotView, GroupView, JobEstimate, JobInput, JobView, MapBlock, Targets, TurtleView, Vec3 } from '@ccfleet/protocol';
+import type { BatchView, CampaignInput, ChunkNeed, DepotInput, DepotView, GroupView, JobEstimate, JobInput, JobView, MapBlock, Targets, TurtleView, Vec3 } from '@ccfleet/protocol';
 
 export class HttpError extends Error {
   constructor(
@@ -50,12 +50,13 @@ export const api = {
 
   saveDepot: (d: Omit<DepotInput, 'waiting'> & { waiting?: DepotInput['waiting'] }, id?: string) => req<DepotView>(id ? 'PUT' : 'POST', id ? `/api/depots/${id}` : '/api/depots', d),
   deleteDepot: (id: string) => req<{ ok: true }>('DELETE', `/api/depots/${id}`),
-  estimateJob: (j: JobInput) => req<{ estimate: JobEstimate; warnings: string[] }>('POST', '/api/jobs/estimate', j),
+  estimateJob: (j: JobInput) => req<{ estimate: JobEstimate; warnings: string[]; chunks: ChunkNeed[] }>('POST', '/api/jobs/estimate', j),
   createJob: (j: JobInput) => req<JobView>('POST', '/api/jobs', j),
   startJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/start`, {}),
   pauseJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/pause`, {}),
   cancelJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/cancel`, {}),
   deleteJob: (id: string) => req<{ ok: true }>('DELETE', `/api/jobs/${id}`),
+  setForcedChunk: (c: { world: string; dimension: string; cx: number; cz: number; forced: boolean }) => req<unknown>('POST', '/api/forced-chunks', c),
   createCampaign: (c: CampaignInput) => req<{ campaignId: string; jobs: JobView[]; skipped: string[] }>('POST', '/api/campaigns', c),
   campaignAction: (id: string, action: 'start' | 'pause' | 'cancel') => req<{ jobId: string; ok: boolean; error?: string }[]>('POST', `/api/campaigns/${id}/${action}`, {}),
   turtlesJobs: (turtleIds: string[], action: 'start' | 'pause' | 'cancel') => req<{ jobId: string; ok: boolean; error?: string }[]>('POST', '/api/jobs/by-turtles', { turtleIds, action }),

@@ -127,6 +127,17 @@ const MIGRATIONS: string[] = [
     updated_at INTEGER NOT NULL
   );
   `,
+  // 3: chunks the operator marked as force-loaded (FTB Chunks etc.)
+  `
+  CREATE TABLE forced_chunks (
+    world TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    cx INTEGER NOT NULL,
+    cz INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (world, dimension, cx, cz)
+  ) WITHOUT ROWID;
+  `,
 ];
 
 export function openDb(file: string): Db {

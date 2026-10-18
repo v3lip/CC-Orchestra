@@ -102,9 +102,13 @@ Options in your pack:
 Checked against the installed jar and your config, not just the wiki:
 
 - The upgrade shows up as a peripheral of type `chunky` on its side. The agent reports it, and the dashboard shows a **CHUNK** badge, the upgrade in the details panel, and green "kept loaded" chunks on the map (**▦ Chunks** toggle).
-- It force-loads **one chunk: the one the turtle is in**, as a ticking chunk, and moves the load along as the turtle moves. Make sure the chest(s) at the depot and the tunnel are reached by turtles that carry a Controller.
+- It force-loads **one chunk: the one the turtle is in**, and moves the load along as the turtle moves.
+- **Seen in-game (2026-10-18): a Chunk Controller alone does not carry a turtle across chunk borders.** With no player near, a turtle that stepped into the next chunk shut down (CC closed its connection) and only came back when the chunk was loaded again. The most likely reason: on 1.16 the chunks around a force-loaded chunk are loaded but don't tick block entities, and a turtle is one. So it freezes in the new chunk before the Controller can move its load there.
+- **So: force-load every chunk a job uses** (tunnel, dock, and the route between) with **FTB Chunks** (claim them, then force-load). Mark the same chunks on the CC Fleet map (**▦ Chunks → Mark force-loaded…**, then click chunks). The job form outlines the chunks a job needs and warns about unmarked ones. If a turtle drops while crossing into an unmarked chunk, the job pauses saying so. A Controller still helps a turtle that stays inside one chunk.
 - The load is saved with the world and restored when the server starts. It expires if the turtle stops refreshing it for `chunkLoadValidTime` (**600 s** in `config/advancedperipherals-common.toml`), e.g. when the Controller is removed.
 - `enableChunkyTurtle = true` in your config.
+
+**Pausing:** in single-player, the Esc menu pauses the whole world, and so does alt-tabbing unless you turn off pause-on-lost-focus (**F3+P**). After 30 s the turtles count as offline and their jobs pause.
 
 **What it can't do:** in **single-player**, the world only runs while you have it open. Leaving the world or closing Minecraft stops every turtle, chunky or not, and they resume (agent restarts via `startup.lua`) when you load the world again. The chunky turtle lets you go somewhere else in the same world (another base, the Nether…) while turtles keep mining. To mine while you are not playing at all, run the world on a **dedicated server** (the FTB pack has server files) and keep the CC Fleet backend running.
 

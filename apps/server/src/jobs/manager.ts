@@ -4,8 +4,10 @@
  */
 import {
   type DepotInput,
+  type ChunkNeed,
   type DepotView,
   type EventView,
+  type ForcedChunk,
   type Heading,
   type JobEstimate,
   type JobPhase,
@@ -23,7 +25,7 @@ import {
 import type { Db } from '../db';
 import { ApiError, type Fleet } from '../fleet';
 import { newId, now } from '../util';
-import { boxesOverlap, eq, fmt, key, lanes, manhattan, splitTunnel, tunnelBox } from './geometry';
+import { boxesOverlap, chunkOf, eq, fmt, jobChunks, key, lanes, manhattan, splitTunnel, tunnelBox } from './geometry';
 import { JobRunner } from './runner';
 import { Interrupt, JobError, Mover } from './mover';
 import { Traffic } from './traffic';
@@ -72,7 +74,7 @@ export class JobManager {
     fleet.hooks.disconnected = (id) => {
       this.stopTask(id, 'turtle went offline');
       const job = this.activeJobFor(id);
-      if (job && (job.view.status === 'running' || job.view.status === 'pausing')) this.pause(job.view.id, 'turtle went offline');
+      if (job && (job.view.status === 'running' || job.view.status === 'pausing')) this.pause(job.view.id, this.offlineReason(job));
     };
     fleet.hooks.removed = (id) => {
       const job = this.activeJobFor(id);
@@ -86,7 +88,7 @@ export class JobManager {
       const j = this.activeJobFor(id);
       return j && { id: j.view.id, name: j.view.name, status: j.view.status, phase: j.view.phase };
     };
-    fleet.hooks.extraInit = () => ({ jobs: this.listJobs(), depots: this.listDepots() });
+    fleet.hooks.extraInit = () => ({ jobs: this.listJobs(), depots: this.listDepots(), forcedChunks: this.listForced() });
     this.timer = setInterval(() => this.flush(), 200);
   }
 
@@ -250,6 +252,54 @@ export class JobManager {
     if (d) this.fleet.broadcast({ type: 'depot', depot: { ...d, lockedBy: this.dockLocks.get(id) } });
   }
 
+  // ------------------------------------------------------------------ force-loaded chunks
+
+  listForced(): ForcedChunk[] {
+    return (this.db.prepare('SELECT world, dimension, cx, cz, created_at FROM forced_chunks').all() as Record<string, unknown>[]).map((r) => ({
+      world: r.world as string,
+      dimension: r.dimension as string,
+      cx: r.cx as number,
+      cz: r.cz as number,
+      createdAt: r.created_at as number,
+    }));
+  }
+
+  setForced(world: string, dimension: string, cx: number, cz: number, forced: boolean): ForcedChunk[] {
+    if (forced) this.db.prepare('INSERT OR IGNORE INTO forced_chunks (world, dimension, cx, cz, created_at) VALUES (?,?,?,?,?)').run(world, dimension, cx, cz, now());
+    else this.db.prepare('DELETE FROM forced_chunks WHERE world=? AND dimension=? AND cx=? AND cz=?').run(world, dimension, cx, cz);
+    const all = this.listForced();
+    this.fleet.broadcast({ type: 'forced_chunks', chunks: all });
+    return all;
+  }
+
+  isForced(world: string, dimension: string, cx: number, cz: number): boolean {
+    return !!this.db.prepare('SELECT 1 FROM forced_chunks WHERE world=? AND dimension=? AND cx=? AND cz=?').get(world, dimension, cx, cz);
+  }
+
+  /**
+   * Why a job's turtle dropped. A turtle that goes offline as it steps into a chunk
+   * nothing keeps loaded is the classic Chunk Controller failure: say so.
+   */
+  private offlineReason(job: JobRec): string {
+    const t = this.fleet.getTurtle(job.view.turtleId);
+    const pos = t?.state?.pose.pos;
+    const route = job.view.route ?? [];
+    if (!pos || route.length === 0) return 'turtle went offline';
+    const i = route.findIndex((c) => eq(c, pos));
+    // Either it was about to step across a border, or it had just stepped across one.
+    const next = route[i + 1] ?? (i < 0 ? route[0] : undefined);
+    const prev = i > 0 ? route[i - 1] : undefined;
+    let a = chunkOf(pos);
+    let b = next ? chunkOf(next) : a;
+    if (a.cx === b.cx && a.cz === b.cz && prev) {
+      b = a;
+      a = chunkOf(prev);
+    }
+    if (a.cx === b.cx && a.cz === b.cz) return 'turtle went offline';
+    if (this.isForced(job.view.world, job.view.dimension, b.cx, b.cz)) return `turtle went offline moving into chunk ${b.cx},${b.cz} (marked force-loaded)`;
+    return `turtle went offline moving from chunk ${a.cx},${a.cz} into chunk ${b.cx},${b.cz}, which probably isn't loaded. A Chunk Controller only keeps the turtle's own chunk active: force-load the job's chunks (FTB Chunks) and mark them on the map, or stay nearby.`;
+  }
+
   // ------------------------------------------------------------------ jobs
 
   listJobs(): JobView[] {
@@ -264,7 +314,7 @@ export class JobManager {
     return [...this.jobs.values()].find((j) => j.view.turtleId === turtleId && ACTIVE.has(j.view.status));
   }
 
-  estimate(input: unknown): { estimate: JobEstimate; warnings: string[] } {
+  estimate(input: unknown): { estimate: JobEstimate; warnings: string[]; chunks: ChunkNeed[] } {
     const j = JobSchema.parse(input);
     const depot = this.depots.get(j.depotId);
     if (!depot) throw new ApiError(400, 'unknown depot');
@@ -284,8 +334,15 @@ export class JobManager {
     }
     if (toSite > 64) warnings.push(`The tunnel starts ${toSite} blocks from the dock; long trips use a lot of fuel.`);
     const turtle = this.fleet.getTurtle(j.turtleId);
+    const chunks: ChunkNeed[] = jobChunks(p, depot.dock).map((c) => ({ ...c, forced: this.isForced(depot.world, depot.dimension, c.cx, c.cz) }));
+    const unmarked = chunks.filter((c) => !c.forced).length;
     if (turtle?.state && !hasChunkLoader(turtle.state.upgrades)) {
       warnings.push(`${turtle.name} has no Chunk Controller: it only keeps working while a player is near (its chunk must stay loaded).`);
+    }
+    if (chunks.length > 1 && unmarked > 0) {
+      warnings.push(
+        `This job spans ${chunks.length} chunks; ${unmarked} aren't marked force-loaded. A turtle stops when it steps into a chunk nothing keeps loaded (a Chunk Controller only covers the chunk it is in). Force-load them with FTB Chunks and mark them on the map, or stay nearby.`,
+      );
     }
     if (turtle && (turtle.world !== depot.world || turtle.dimension !== depot.dimension)) warnings.push(`The turtle is in ${turtle.world}/${turtle.dimension}, the depot in ${depot.world}/${depot.dimension}.`);
     return {
@@ -298,6 +355,7 @@ export class JobManager {
         note: 'Estimate: assumes mostly solid rock, ~640 blocks per trip and no detours. Real numbers vary.',
       },
       warnings,
+      chunks,
     };
   }
 
