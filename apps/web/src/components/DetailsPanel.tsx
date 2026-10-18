@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { TurtleView } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { runBatch, useFleet } from '../lib/store';
-import { HEADING_SHORT, STATUS_COLOR, STATUS_LABEL, ago, fuelFraction, shortItem, statusOf } from '../lib/status';
+import { HEADING_SHORT, STATUS_COLOR, STATUS_LABEL, ago, chunkOf, fuelFraction, isChunky, shortItem, statusOf } from '../lib/status';
 
 export function DetailsPanel() {
   const focusId = useFleet((s) => s.focusId);
@@ -65,6 +65,25 @@ export function DetailsPanel() {
           World <span className="text-ink">{t.world}</span> · {t.dimension.replace('minecraft:', '')}
         </div>
         <Calibrate t={t} />
+      </Section>
+
+      <Section title="Upgrades & chunk loading">
+        <Row k="Left" v={st?.upgrades?.left ?? 'tool / none'} />
+        <Row k="Right" v={st?.upgrades?.right ?? 'tool / none'} />
+        {pose?.pos && <Row k="Chunk" v={<span className="num">{`${chunkOf(pose.pos.x, pose.pos.z).cx}, ${chunkOf(pose.pos.x, pose.pos.z).cz}`}</span>} />}
+        {isChunky(t) ? (
+          <p className="mt-1 text-[11px] text-emerald-300">
+            Chunk Controller: keeps the chunk it is in loaded (and moves the load with it), even with no player near — as long as the world is running. Expires if the turtle stops refreshing it for the
+            configured time (600 s in your config).
+          </p>
+        ) : (
+          st && (
+            <p className="mt-1 text-[11px] text-dim">
+              No Chunk Controller: it stops when no player is near. Craft a Chunky Turtle (turtle + Advanced Peripherals Chunk Controller) or equip one on a free side.
+            </p>
+          )
+        )}
+        {st && !st.upgrades && <p className="mt-1 text-[11px] text-amber-300">This agent doesn't report upgrades yet: run "install" on the turtle to update it.</p>}
       </Section>
 
       <Section title="Fuel">

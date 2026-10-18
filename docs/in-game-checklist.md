@@ -22,6 +22,14 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 14. [ ] **Several turtles, one depot:** put 2–3 turtles side by side at a rock face, 2+ blocks apart, facing the rock. Select them all → **Jobs** → **New tunnel**. Each gets its own tunnel in front of it (check the preview), then **Create & start N jobs**. When two want to unload at once, one shows *waiting for the dock (in use by …)* until the other is back in its tunnel.
 
+### Chunky turtles (Chunk Controller)
+
+15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.
+16. [ ] Map **▦ Chunks on**: the turtle's chunk is green "kept loaded". Non-chunky online turtles show a dashed blue "loaded now" chunk.
+17. [ ] **Key check: crossing chunks.** Start a tunnel that crosses a chunk border (the grid lines). Fly far away (500+ blocks) or into the Nether. The job keeps going: the turtle stays *online*, its progress rises, and its green chunk moves with it. If it goes *offline* exactly at a border, tell me; then the neighbouring chunk isn't ticking in your setup.
+18. [ ] While you're away, an unload trip to a depot in another chunk still works (the turtle loads the dock's chunk when it gets there).
+19. [ ] Save & quit, then reload the world: turtles reconnect by themselves (their chunks are restored by Advanced Peripherals). Jobs show *paused (turtle went offline)*; resume them.
+
 Report: the job card's error box, plus the turtle's screen.
 
 ---

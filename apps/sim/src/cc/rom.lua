@@ -370,6 +370,13 @@ peripheral = {
       end,
     }
   end,
+  getType = function(side)
+    local t = __periph_type(side)
+    if t then return t end
+    local dir = SIDE_DIR[side]
+    if dir and __inv_size(dir) then return "minecraft:chest", "inventory" end
+    return nil
+  end,
   find = function(ty)
     if ty == "modem" and __has_modem() then return { isWireless = function() return true end } end
     return nil

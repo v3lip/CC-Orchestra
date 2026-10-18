@@ -9,7 +9,7 @@
 --   * remember recent command ids so a re-delivered command never runs twice
 --   * when the connection drops, finish the current atomic op, then do nothing
 
-local AGENT_VERSION = "lua-0.3.0"
+local AGENT_VERSION = "lua-0.3.1"
 local PROTOCOL = 1
 local DIR = "/fleet"
 local CONFIG_FILE = DIR .. "/config.json"
@@ -239,6 +239,17 @@ local function inventory()
   return items
 end
 
+-- Peripheral type of each upgrade side (nil for tools such as the pickaxe).
+-- Advanced Peripherals' Chunk Controller reports "chunky".
+local function upgrades()
+  local u = {}
+  for _, side in ipairs({ "left", "right" }) do
+    local t = peripheral.getType(side)
+    if type(t) == "string" then u[side] = t end
+  end
+  return u
+end
+
 local function stateTable()
   local hold = nil
   if mem.hold then hold = { stopId = mem.hold.stopId, reason = mem.hold.reason } end
@@ -252,6 +263,7 @@ local function stateTable()
     hold = hold,
     currentCommandId = busy and busy.id or nil,
     lastError = lastError,
+    upgrades = upgrades(),
   }
 end
 

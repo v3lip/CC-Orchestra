@@ -349,6 +349,19 @@ describe('several turtles, one depot', () => {
   }, 90_000);
 });
 
+describe('chunk loading', () => {
+  it('estimates warn when the turtle has no Chunk Controller', async () => {
+    const { server, world, depot } = await setup();
+    const plain = await sim(server, world);
+    const chunky = await spawnTurtle(server, world, { x: 1, y: 100, z: 3, heading: 1 }, { opMs: 4, upgrades: { right: 'chunky' } });
+    sims.push(chunky);
+    const w1 = server.jobs.estimate(tunnel(plain.turtleId!, depot.id)).warnings;
+    const w2 = server.jobs.estimate(tunnel(chunky.turtleId!, depot.id)).warnings;
+    expect(w1.some((w) => w.includes('no Chunk Controller'))).toBe(true);
+    expect(w2.some((w) => w.includes('no Chunk Controller'))).toBe(false);
+  });
+});
+
 describe('agent version gate', () => {
   it('jobs need agent 0.3.0+ (verified unloading, dig protection)', async () => {
     const { agentSupportsJobs } = await import('../src/jobs/runner');

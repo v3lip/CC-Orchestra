@@ -3,6 +3,7 @@ import type { JobView } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { useFleet } from '../lib/store';
 import { JobForm } from './JobForm';
+import { isChunky } from '../lib/status';
 
 const STATUS_TONE: Record<JobView['status'], string> = {
   ready: 'bg-slate-700 text-slate-200',
@@ -75,6 +76,11 @@ function JobCard({ job }: { job: JobView }) {
         <span>{p.itemsUnloaded} items unloaded</span>
       </div>
       {job.note && active && <div className="mt-1 text-sky-300">{job.note}</div>}
+      {turtle && !isChunky(turtle) && job.status !== 'completed' && job.status !== 'cancelled' && (
+        <div className="mt-1 text-[11px] text-dim" title="Without a Chunk Controller the turtle's chunk unloads when no player is near, and the job pauses (turtle offline).">
+          No Chunk Controller: runs only while a player is near.
+        </div>
+      )}
       {job.pauseReason && job.status === 'paused' && !job.error && <div className="mt-1 text-amber-300">Paused: {job.pauseReason}</div>}
       {job.error && (
         <div className="mt-1 rounded border border-red-900/60 bg-red-950/30 p-1.5 text-red-200">

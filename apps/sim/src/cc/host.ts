@@ -29,6 +29,8 @@ export interface CCTurtleOptions {
   gps?: boolean;
   /** Lines returned by read(). */
   inputs?: string[];
+  /** Peripheral upgrades on each side, e.g. { left: 'chunky' } for a Chunk Controller. */
+  upgrades?: { left?: string; right?: string };
   onPrint?: (line: string) => void;
 }
 
@@ -325,6 +327,7 @@ export class CCTurtle {
       const inv = physics.inventoryAt(this.world, body, d);
       return inv ? JSON.stringify(inv.flatMap((it, i) => (it ? [{ slot: i + 1, name: it.name, count: it.count }] : []))) : undefined;
     });
+    g.set('__periph_type', (side: string) => (side === 'left' || side === 'right' ? this.opts.upgrades?.[side] : undefined));
     g.set('__has_modem', () => !!this.opts.gps);
     g.set('__gps', () => (this.opts.gps ? `${body.pos.x},${body.pos.y},${body.pos.z}` : undefined));
   }

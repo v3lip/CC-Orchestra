@@ -95,6 +95,17 @@ export type Hold = z.infer<typeof Hold>;
 export const ErrorInfo = z.object({ code: z.string().max(32), message: z.string().max(256), at: int().optional() });
 export type ErrorInfo = z.infer<typeof ErrorInfo>;
 
+/** Peripheral types of the turtle's left/right upgrades (absent = tool or nothing). */
+export const Upgrades = z.object({ left: z.string().max(64).optional(), right: z.string().max(64).optional() });
+export type Upgrades = z.infer<typeof Upgrades>;
+
+/** Advanced Peripherals' Chunk Controller upgrade shows up as this peripheral type. */
+export const CHUNKY_PERIPHERAL = 'chunky';
+
+export function hasChunkLoader(u: Upgrades | undefined): boolean {
+  return !!u && (u.left === CHUNKY_PERIPHERAL || u.right === CHUNKY_PERIPHERAL);
+}
+
 export const TurtleState = z.object({
   pose: Pose,
   fuel: Fuel,
@@ -105,6 +116,7 @@ export const TurtleState = z.object({
   hold: Hold.optional(),
   currentCommandId: id().optional(),
   lastError: ErrorInfo.optional(),
+  upgrades: Upgrades.optional(),
 });
 export type TurtleState = z.infer<typeof TurtleState>;
 

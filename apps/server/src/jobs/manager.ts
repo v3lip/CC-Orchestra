@@ -15,6 +15,7 @@ import {
   DepotInput as DepotSchema,
   JobInput as JobSchema,
   JobPolicy,
+  hasChunkLoader,
 } from '@ccfleet/protocol';
 import type { Db } from '../db';
 import { ApiError, type Fleet } from '../fleet';
@@ -231,6 +232,9 @@ export class JobManager {
     }
     if (toSite > 64) warnings.push(`The tunnel starts ${toSite} blocks from the dock; long trips use a lot of fuel.`);
     const turtle = this.fleet.getTurtle(j.turtleId);
+    if (turtle?.state && !hasChunkLoader(turtle.state.upgrades)) {
+      warnings.push(`${turtle.name} has no Chunk Controller: it only keeps working while a player is near (its chunk must stay loaded).`);
+    }
     if (turtle && (turtle.world !== depot.world || turtle.dimension !== depot.dimension)) warnings.push(`The turtle is in ${turtle.world}/${turtle.dimension}, the depot in ${depot.world}/${depot.dimension}.`);
     return {
       estimate: {

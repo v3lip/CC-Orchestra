@@ -1,5 +1,14 @@
 # Progress notes
 
+## Chunk loading visibility (2026-10-18)
+
+- Agent `lua-0.3.1` / `sim-0.3.1` reports each upgrade side's peripheral type (`state.upgrades`). An Advanced Peripherals Chunk Controller reports `chunky`. This was verified from the installed AP 0.7.7.1r jar: `ChunkyPeripheral.TYPE = "chunky"`. It force-loads the turtle's current chunk via ForgeChunkManager, refreshed each tick, expires after `chunkLoadValidTime` (600 s), and persists across server restarts.
+- Dashboard: CHUNK badge, an upgrades & chunk-loading section in the details panel, and a job-card note for turtles without a Controller. The estimate warns too.
+- Map **▦ Chunks** overlay: chunk grid; "kept loaded" (online chunky turtle), "loaded now" (an online turtle is active there), and "chunky turtle offline" (last known chunk). Chunks loaded by players or other mods (FTB Chunks) aren't visible and the legend says so.
+- `npm run sim -- --chunky` equips simulated turtles with a Controller.
+- Tests: 49 (agent reports upgrades; estimate warning).
+- Not verified in-game: that a chunky turtle keeps working across chunk borders with no player near (checklist step 17).
+
 ## Milestone 4, part 1 — several turtles, one depot (2026-10-18)
 
 Prompted by in-game use: Milestone 3 worked for one turtle, but multi-selecting turtles for jobs was clunky.

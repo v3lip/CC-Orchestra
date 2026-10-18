@@ -29,6 +29,9 @@ interface FleetState {
   jobs: Record<string, JobView>;
   depots: Record<string, DepotView>;
   rightTab: 'turtle' | 'jobs' | 'depots';
+  /** Show the chunk grid and which chunks turtles keep loaded. */
+  showChunks: boolean;
+  setShowChunks(v: boolean): void;
   /** Tunnel being drafted in the job form, previewed on the map. */
   jobDraft?: TunnelParams[];
   setRightTab(t: FleetState['rightTab']): void;
@@ -64,6 +67,8 @@ export const useFleet = create<FleetState>((set, get) => ({
   jobs: {},
   depots: {},
   rightTab: 'turtle',
+  showChunks: true,
+  setShowChunks: (showChunks) => set({ showChunks }),
   setRightTab: (rightTab) => set({ rightTab }),
   setJobDraft: (jobDraft) => set({ jobDraft }),
 

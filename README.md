@@ -31,7 +31,7 @@ Add `--lua` to run the **real Lua agent** (`turtle/fleet/agent.lua`, installed t
 npm run sim -- --lua --count 3 --data ./sim-data-lua
 ```
 
-Simulator options: `--count N`, `--speed 2` (faster ops), `--reset` (fresh world and turtles), `--no-calibrate` (start with unknown pose), `--no-gps`. Simulated turtles are registered in the world `sim`, so their map never mixes with real data. They are marked **SIM** everywhere.
+Simulator options: `--chunky` (equip a Chunk Controller), `--count N`, `--speed 2` (faster ops), `--reset` (fresh world and turtles), `--no-calibrate` (start with unknown pose), `--no-gps`. Simulated turtles are registered in the world `sim`, so their map never mixes with real data. They are marked **SIM** everywhere.
 
 ### Hot-reload development
 

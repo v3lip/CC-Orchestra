@@ -27,6 +27,8 @@ const { values } = parseArgs({
     seed: { type: 'string', default: '1337' },
     // Run the real Lua agent (turtle/fleet/agent.lua) in the CC host instead of the TS agent.
     lua: { type: 'boolean', default: false },
+    // Equip simulated turtles with a Chunk Controller (Advanced Peripherals) on the left.
+    chunky: { type: 'boolean', default: false },
   },
 });
 
@@ -123,6 +125,7 @@ for (let i = 0; i < count; i++) {
       files,
       opMs,
       gps: !values['no-gps'],
+      upgrades: values.chunky ? { left: 'chunky' } : undefined,
       inputs: [values['no-calibrate'] ? '' : `${body.pos.x} ${body.pos.y} ${body.pos.z} ${'nesw'[body.heading]}`],
       onPrint: (m) => console.log(`[lua #${computerId}] ${m}`),
     });
@@ -146,6 +149,7 @@ for (let i = 0; i < count; i++) {
     opMs,
     initialPose,
     gps: !values['no-gps'],
+    upgrades: values.chunky ? { left: 'chunky' } : undefined,
     onLog: (m) => console.log(m),
   });
   turtles.push(t);

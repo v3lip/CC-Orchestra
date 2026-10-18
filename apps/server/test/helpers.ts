@@ -46,7 +46,7 @@ export async function spawnTurtle(
   server: Awaited<ReturnType<typeof startServer>>,
   world: SimWorld,
   at: { x: number; y: number; z: number; heading?: Heading },
-  extra: { fuel?: number | 'unlimited'; store?: MemoryStore; opMs?: number; calibrated?: boolean; slots?: TurtleBody['slots'] } = {},
+  extra: { fuel?: number | 'unlimited'; store?: MemoryStore; opMs?: number; calibrated?: boolean; slots?: TurtleBody['slots']; upgrades?: { left?: string; right?: string } } = {},
 ) {
   const heading = at.heading ?? 0;
   const body: TurtleBody = {
@@ -68,6 +68,7 @@ export async function spawnTurtle(
     opMs: extra.opMs ?? 20,
     initialPose: extra.calibrated === false ? undefined : knownPose(at.x, at.y, at.z, heading),
     gps: true,
+    upgrades: extra.upgrades,
   });
   turtle.start();
   await waitFor(() => turtle.turtleId && server.fleet.getTurtle(turtle.turtleId)?.state && server.fleet.getTurtle(turtle.turtleId)?.connection === 'online');
@@ -107,7 +108,7 @@ export async function spawnLuaTurtle(
   server: Awaited<ReturnType<typeof startServer>>,
   world: SimWorld,
   at: { x: number; y: number; z: number; heading?: Heading },
-  extra: { fuel?: number | 'unlimited'; opMs?: number; calibrate?: boolean; gps?: boolean; slots?: TurtleBody['slots'] } = {},
+  extra: { fuel?: number | 'unlimited'; opMs?: number; calibrate?: boolean; gps?: boolean; slots?: TurtleBody['slots']; upgrades?: { left?: string; right?: string } } = {},
 ) {
   const heading = at.heading ?? 0;
   const body: TurtleBody = {
@@ -126,6 +127,7 @@ export async function spawnLuaTurtle(
     computerId,
     opMs: extra.opMs ?? 20,
     gps: extra.gps ?? false,
+    upgrades: extra.upgrades,
     inputs: [extra.calibrate === false ? '' : `${at.x} ${at.y} ${at.z} ${HEADING_LETTER[heading]}`],
   });
   t.files.set('install.lua', await (await fetch(`${server.baseUrl}/turtle/install.lua`)).text());

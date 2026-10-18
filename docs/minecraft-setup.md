@@ -93,9 +93,22 @@ Turtles are not chunk loaders. If no player is near a turtle, its chunk unloads 
 
 Options in your pack:
 
-- **Stay nearby** (simplest).
-- **FTB Chunks** (installed): claim and force-load the mining area's chunks. This is per-team; check the FTB Chunks force-load limits in its config.
-- **Advanced Peripherals' Chunky Turtle** (0.7.7.1r installed): a turtle upgrade that keeps the turtle's own chunk loaded while it moves. It is an optional adapter for later milestones and needs nothing from the baseline.
+- **Chunky turtles (recommended for jobs):** an Advanced Peripherals **Chunk Controller** on one side of the turtle (the other side keeps the pickaxe). Craft it into a turtle, or equip it on a free side. Details below.
+- **FTB Chunks** (installed): claim and force-load the mining area's chunks. This is per-team; check the force-load limits in its config. CC Fleet can't see these.
+- **Stay nearby.**
+
+### Chunky turtles (Advanced Peripherals 0.7.7.1r)
+
+Checked against the installed jar and your config, not just the wiki:
+
+- The upgrade shows up as a peripheral of type `chunky` on its side. The agent reports it, and the dashboard shows a **CHUNK** badge, the upgrade in the details panel, and green "kept loaded" chunks on the map (**▦ Chunks** toggle).
+- It force-loads **one chunk: the one the turtle is in**, as a ticking chunk, and moves the load along as the turtle moves. Make sure the chest(s) at the depot and the tunnel are reached by turtles that carry a Controller.
+- The load is saved with the world and restored when the server starts. It expires if the turtle stops refreshing it for `chunkLoadValidTime` (**600 s** in `config/advancedperipherals-common.toml`), e.g. when the Controller is removed.
+- `enableChunkyTurtle = true` in your config.
+
+**What it can't do:** in **single-player**, the world only runs while you have it open. Leaving the world or closing Minecraft stops every turtle, chunky or not, and they resume (agent restarts via `startup.lua`) when you load the world again. The chunky turtle lets you go somewhere else in the same world (another base, the Nether…) while turtles keep mining. To mine while you are not playing at all, run the world on a **dedicated server** (the FTB pack has server files) and keep the CC Fleet backend running.
+
+**Updated agent needed:** run `install` on the turtle (agent `lua-0.3.1`) so it reports its upgrades. Older agents work as before but show no chunk info.
 
 Nothing in CC Fleet assumes chunks stay loaded. A turtle whose chunk unloads is shown stale/offline, and its last position is still treated as occupied.
 

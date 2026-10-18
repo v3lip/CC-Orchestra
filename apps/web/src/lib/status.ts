@@ -1,4 +1,5 @@
 import type { DisplayStatus, TurtleView } from '@ccfleet/protocol';
+import { hasChunkLoader } from '@ccfleet/protocol';
 
 export const STATUS_COLOR: Record<DisplayStatus, string> = {
   idle: '#38bdf8',
@@ -86,3 +87,10 @@ export function blockColor(name: string): string {
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
   return `hsl(${Math.abs(h) % 360} 35% 42%)`;
 }
+
+/** Has an Advanced Peripherals Chunk Controller equipped (keeps its own chunk loaded). */
+export function isChunky(t: TurtleView): boolean {
+  return hasChunkLoader(t.state?.upgrades);
+}
+
+export const chunkOf = (x: number, z: number) => ({ cx: Math.floor(x / 16), cz: Math.floor(z / 16) });

@@ -54,6 +54,14 @@ describe('Lua agent: install, pairing, telemetry', () => {
     expect(t.state.creds.turtleId).toBe(t.turtleId);
   });
 
+  it('reports equipped upgrades, e.g. an Advanced Peripherals Chunk Controller ("chunky")', async () => {
+    const { server, world } = await setup();
+    const chunky = await spawn(server, world, { x: 0, y: 100, z: 0 }, { upgrades: { left: 'chunky' } });
+    const plain = await spawn(server, world, { x: 3, y: 100, z: 0 });
+    expect(server.fleet.getTurtle(chunky.turtleId)?.state?.upgrades).toEqual({ left: 'chunky' });
+    expect(server.fleet.getTurtle(plain.turtleId)?.state?.upgrades).toEqual({});
+  });
+
   it('a turtle installed without calibration reports an unknown pose and can be calibrated', async () => {
     const { server, world } = await setup();
     const t = await spawn(server, world, { x: 0, y: 100, z: 0 }, { calibrate: false });

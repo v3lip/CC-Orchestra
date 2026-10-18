@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DepotView, JobView, TunnelParams, TurtleView } from '@ccfleet/protocol';
 import { HEADING_VECTORS } from '@ccfleet/protocol';
 import { mapCache, useFleet } from '../lib/store';
-import { STATUS_COLOR, blockColor, shortItem, statusOf } from '../lib/status';
+import { STATUS_COLOR, blockColor, isChunky, shortItem, statusOf } from '../lib/status';
 
 interface Camera {
   x: number; // block coords at the screen centre
@@ -37,6 +37,7 @@ export function MapView() {
   const jobs = useFleet((s) => s.jobs);
   const depots = useFleet((s) => s.depots);
   const jobDraft = useFleet((s) => s.jobDraft);
+  const showChunks = useFleet((s) => s.showChunks);
 
   const visibleTurtles = Object.values(turtles).filter((t) => t.world === world && t.dimension === dimension && t.state?.pose.pos);
 
@@ -134,6 +135,8 @@ export function MapView() {
     ctx.moveTo(0, toSy(0));
     ctx.lineTo(w, toSy(0));
     ctx.stroke();
+
+    if (showChunks) drawChunks(ctx, visibleTurtles, toSx, toSy, s, w, h, x0, x1, z0, z1);
 
     // Depots, job volumes, planned routes.
     for (const d of Object.values(depots)) if (d.world === world && d.dimension === dimension) drawDepot(ctx, d, toSx, toSy, s, y);
@@ -306,6 +309,7 @@ export function MapView() {
         <span>−Z</span>
       </div>
       <Legend />
+      <ChunkToggle />
     </div>
   );
 }
@@ -510,4 +514,116 @@ function drawDepot(ctx: CanvasRenderingContext2D, d: DepotView, toSx: (x: number
     ctx.fillText(d.name, toSx(d.dock.x + 0.5), toSy(d.dock.z) - 3);
   }
   ctx.restore();
+}
+
+type ChunkState = 'kept' | 'active' | 'lastKept';
+
+/**
+ * Chunk grid plus what we can infer about loading:
+ *   kept      — a chunky turtle (Chunk Controller) is in it and online: force-loaded
+ *   active    — an online turtle is working in it: loaded right now
+ *   lastKept  — a chunky turtle was last seen here but is offline: AP keeps it loaded
+ *               for up to its configured time, if the world is running
+ * Chunks loaded by players or other mods are invisible to us.
+ */
+function drawChunks(
+  ctx: CanvasRenderingContext2D,
+  turtles: TurtleView[],
+  toSx: (x: number) => number,
+  toSy: (z: number) => number,
+  s: number,
+  w: number,
+  h: number,
+  x0: number,
+  x1: number,
+  z0: number,
+  z1: number,
+) {
+  const rank: Record<ChunkState, number> = { kept: 3, active: 2, lastKept: 1 };
+  const chunks = new Map<string, { cx: number; cz: number; state: ChunkState; names: string[] }>();
+  for (const t of turtles) {
+    const p = t.state!.pose.pos!;
+    const chunky = isChunky(t);
+    const online = t.connection !== 'offline';
+    const state: ChunkState | undefined = chunky ? (online ? 'kept' : 'lastKept') : online ? 'active' : undefined;
+    if (!state) continue;
+    const cx = Math.floor(p.x / 16);
+    const cz = Math.floor(p.z / 16);
+    const k = `${cx},${cz}`;
+    const cur = chunks.get(k);
+    if (!cur || rank[state] > rank[cur.state]) chunks.set(k, { cx, cz, state, names: [...(cur?.names ?? []), t.name] });
+    else cur.names.push(t.name);
+  }
+  ctx.save();
+  // Grid.
+  if (s >= 2) {
+    ctx.strokeStyle = 'rgba(148,163,184,0.16)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let cx = Math.floor(x0 / 16); cx <= Math.ceil(x1 / 16); cx++) {
+      const sx = Math.round(toSx(cx * 16)) + 0.5;
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx, h);
+    }
+    for (let cz = Math.floor(z0 / 16); cz <= Math.ceil(z1 / 16); cz++) {
+      const sy = Math.round(toSy(cz * 16)) + 0.5;
+      ctx.moveTo(0, sy);
+      ctx.lineTo(w, sy);
+    }
+    ctx.stroke();
+  }
+  const style: Record<ChunkState, { fill: string; stroke: string; dash: number[]; label: string }> = {
+    kept: { fill: 'rgba(74,222,128,0.10)', stroke: 'rgba(74,222,128,0.75)', dash: [], label: 'kept loaded' },
+    active: { fill: 'rgba(56,189,248,0.06)', stroke: 'rgba(56,189,248,0.5)', dash: [4, 3], label: 'loaded (turtle active)' },
+    lastKept: { fill: 'rgba(251,191,36,0.06)', stroke: 'rgba(251,191,36,0.7)', dash: [6, 4], label: 'chunky turtle offline' },
+  };
+  for (const c of chunks.values()) {
+    const st = style[c.state];
+    const sx = toSx(c.cx * 16);
+    const sy = toSy(c.cz * 16);
+    ctx.fillStyle = st.fill;
+    ctx.fillRect(sx, sy, 16 * s, 16 * s);
+    ctx.strokeStyle = st.stroke;
+    ctx.setLineDash(st.dash);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(sx + 0.5, sy + 0.5, 16 * s - 1, 16 * s - 1);
+    if (16 * s >= 70) {
+      ctx.setLineDash([]);
+      ctx.fillStyle = st.stroke;
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'left';
+      ctx.fillText(`chunk ${c.cx},${c.cz} · ${st.label}`, sx + 4, sy + 12);
+    }
+  }
+  ctx.restore();
+}
+
+function ChunkToggle() {
+  const show = useFleet((s) => s.showChunks);
+  const set = useFleet((s) => s.setShowChunks);
+  return (
+    <div className="absolute right-3 top-14 flex flex-col items-end gap-1 text-[10px]">
+      <button
+        onClick={() => set(!show)}
+        className={`rounded border px-2 py-0.5 ${show ? 'border-emerald-700 bg-emerald-950/70 text-emerald-200' : 'border-edge bg-black/60 text-dim'}`}
+        title="Chunk grid and chunks turtles keep loaded"
+      >
+        ▦ Chunks {show ? 'on' : 'off'}
+      </button>
+      {show && (
+        <div className="pointer-events-none max-w-56 space-y-0.5 rounded bg-black/60 px-2 py-1 text-dim">
+          <div>
+            <span className="text-emerald-300">■</span> kept loaded (Chunk Controller)
+          </div>
+          <div>
+            <span className="text-sky-300">▢</span> loaded now (turtle active)
+          </div>
+          <div>
+            <span className="text-amber-300">▢</span> chunky turtle offline
+          </div>
+          <div className="text-slate-500">Chunks loaded by players or other mods aren't shown.</div>
+        </div>
+      )}
+    </div>
+  );
 }

@@ -39,7 +39,7 @@ import {
 import { SimWorld, type TurtleBody } from './world';
 import * as physics from './physics';
 
-export const SIM_AGENT_VERSION = 'sim-0.3.0';
+export const SIM_AGENT_VERSION = 'sim-0.3.1';
 
 export interface Journal {
   commandId: string;
@@ -86,6 +86,8 @@ export interface SimTurtleOptions {
   /** Known starting pose (as if the operator calibrated it). */
   initialPose?: Pose;
   gps?: boolean;
+  /** Peripheral upgrades on each side, e.g. { left: 'chunky' } for a Chunk Controller. */
+  upgrades?: { left?: string; right?: string };
   onLog?: (msg: string) => void;
   onCredentials?: (creds: { turtleId: string; secret: string }) => void;
 }
@@ -310,6 +312,7 @@ export class SimTurtle {
       hold: this.mem.hold,
       currentCommandId: this.busy?.commandId,
       lastError: this.lastError,
+      upgrades: { ...this.opts.upgrades },
     };
   }
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { TurtleView } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { useFleet } from '../lib/store';
-import { STATUS_COLOR, STATUS_LABEL, fuelFraction, statusOf } from '../lib/status';
+import { STATUS_COLOR, STATUS_LABEL, fuelFraction, isChunky, statusOf } from '../lib/status';
 
 type Filter = 'all' | 'online' | 'offline' | 'attention' | 'real' | 'sim';
 
@@ -204,6 +204,11 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
                 <i className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[status] }} />
                 <span className={`truncate font-medium ${t.connection === 'offline' ? 'text-slate-500' : ''}`}>{t.name}</span>
                 {t.simulated && <span className="rounded bg-violet-900/60 px-1 text-[9px] font-bold text-violet-200">SIM</span>}
+                {isChunky(t) && (
+                  <span className="rounded bg-emerald-900/60 px-1 text-[9px] font-bold text-emerald-200" title="Chunk Controller equipped: keeps its own chunk loaded">
+                    CHUNK
+                  </span>
+                )}
                 {needsAttention(t) && <span className="text-amber-400" title="Needs attention">!</span>}
                 <span className="ml-auto shrink-0 text-dim">{STATUS_LABEL[status]}</span>
               </div>
