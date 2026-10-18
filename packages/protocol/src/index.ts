@@ -554,6 +554,11 @@ export const JobPolicy = z.object({
   /** Refuel up to this level at the depot (capped by the turtle's fuel limit). */
   refuelTarget: int().min(0).max(100000).default(2000),
   returnHomeWhenDone: z.boolean().default(true),
+  /**
+   * Opt-in: if the job paused because its turtle dropped, resume when the turtle comes
+   * back (within 15 min, at most 3 times per hour, only with a known pose and no hold).
+   */
+  autoResume: z.boolean().default(false),
 });
 export type JobPolicy = z.infer<typeof JobPolicy>;
 

@@ -1,12 +1,15 @@
 # Progress notes
 
-## Chunk borders: force-loaded chunks (2026-10-18)
+## Chunk borders: one unexplained drop, auto-resume (2026-10-18)
 
-In-game, a turtle with a Chunk Controller went offline exactly as it stepped from chunk (−15,−14) into the next one on its way home. The backend saw a clean socket close (the computer shut down, not a timeout), and it came back a minute later when the chunk loaded again. Minecraft logged nothing. Conclusion: the Controller can't carry a turtle across chunk borders; the chunks a job uses must be force-loaded another way (FTB Chunks).
+In-game, a turtle with a Chunk Controller went offline once, exactly as it stepped from chunk (−15,−14) into the next one on a long trip home, and came back by itself a minute later. Minecraft logged nothing. My first conclusion (the Controller can't cross borders) was wrong: chunky turtles have worked 500+ blocks away, crossing many borders. The cause is still unknown; the user suspects the chunk load not keeping up on the long walk back.
+
+- **Opt-in auto-resume** (job policy): a job paused because its turtle dropped resumes when the turtle reconnects, within 15 min, at most 3× per hour, only with a known pose and no hold, and never after an operator pause.
+- **Disconnect close codes** are now logged, to tell a computer shutdown from a dropped link next time. AP's `enableDebugMode` logs its force-loads.
 
 - **Mark force-loaded chunks** on the map (**▦ Chunks → Mark force-loaded…**, click to toggle). Stored in SQLite (migration 3) and shared live. CC Fleet can't detect FTB Chunks' force-loads itself.
-- **Chunks a job needs:** the estimate returns the tunnel footprint, the dock, and the chunks on the line between them, with marked/unmarked status. The form outlines unmarked ones in red and warns.
-- **Crossing diagnosis:** if a job's turtle disconnects while about to cross, or just after crossing, into an unmarked chunk, the job pauses with *went offline moving from chunk A into chunk B, which probably isn't loaded…*. Routes now include the start cell so "just crossed" is recognised.
+- **Chunks a job uses:** the estimate returns the tunnel footprint, the dock, and the chunks on the line between them, with marked/unmarked status. The form outlines unmarked ones (informational, no warning).
+- **Crossing note:** if a job's turtle disconnects right at a chunk border, the pause reason says *went offline as it crossed from chunk A into chunk B*. Routes now include the start cell so "just crossed" is recognised.
 - Docs: why the Controller isn't enough, FTB Chunks setup, and the Esc/alt-tab pause gotcha (F3+P).
 - Tests: 58 (estimate chunk coverage and marking; diagnosis when the link drops at a border).
 

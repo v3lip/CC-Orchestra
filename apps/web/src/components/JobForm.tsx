@@ -84,6 +84,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
     fuelReserve: '100',
     refuelTarget: '2000',
     returnHomeWhenDone: true,
+    autoResume: false,
   }));
   const [est, setEst] = useState<{ cells: number; fuel: number; seconds: number; trips: number; note: string; warnings: string[] }>();
   const [err, setErr] = useState<string>();
@@ -208,6 +209,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
           fuelReserve: Number(v.fuelReserve),
           refuelTarget: Number(v.refuelTarget),
           returnHomeWhenDone: v.returnHomeWhenDone,
+          autoResume: v.autoResume,
         },
       })),
     [drafts, multi, v],
@@ -446,6 +448,10 @@ export function JobForm({ onDone }: { onDone: () => void }) {
           <label className="mt-3 flex items-center gap-1 text-[11px] text-dim">
             <input type="checkbox" checked={v.returnHomeWhenDone} onChange={(e) => setV({ ...v, returnHomeWhenDone: e.target.checked })} />
             return &amp; unload when done
+          </label>
+          <label className="col-span-2 flex items-start gap-1 text-[11px] text-dim" title="Only when the job paused because the turtle dropped: back within 15 min, at most 3 times an hour, with a known position and heading, and not stopped. Never after you pause it yourself.">
+            <input type="checkbox" className="mt-0.5" checked={v.autoResume} onChange={(e) => setV({ ...v, autoResume: e.target.checked })} />
+            resume automatically if the turtle reconnects (within 15 min, max 3×/hour)
           </label>
         </div>
         <p className="mt-1 text-[11px] text-dim">

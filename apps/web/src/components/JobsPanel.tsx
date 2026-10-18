@@ -158,6 +158,9 @@ function JobCard({ job }: { job: JobView }) {
         </div>
       )}
       {job.pauseReason && job.status === 'paused' && !job.error && <div className="mt-1 text-amber-300">Paused: {job.pauseReason}</div>}
+      {job.policy.autoResume && job.status === 'paused' && job.pauseReason?.startsWith('turtle went offline') && (
+        <div className="mt-0.5 text-[11px] text-sky-300">Will resume by itself if the turtle reconnects within 15 min.</div>
+      )}
       {job.error && (
         <div className="mt-1 rounded border border-red-900/60 bg-red-950/30 p-1.5 text-red-200">
           <span className="num">[{job.error.code}]</span> {job.error.message}

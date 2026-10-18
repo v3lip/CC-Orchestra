@@ -51,6 +51,10 @@ export class JobManager {
   private dockLocks = new Map<string, string>();
   /** depotId -> (spot key -> turtle) */
   private spotClaims = new Map<string, Map<string, string>>();
+  /** Jobs paused because their turtle dropped, with auto-resume on: when it dropped. */
+  private droppedAt = new Map<string, number>();
+  /** Recent automatic resumes per job (for the 3-per-hour limit). */
+  private autoResumes = new Map<string, number[]>();
   private tasks = new Map<string, { id: string; target: Vec3; status: 'running' | 'stopping'; note?: string; reason?: string }>();
   readonly traffic: Traffic;
   private pendingBroadcast = new Set<string>();
@@ -74,8 +78,12 @@ export class JobManager {
     fleet.hooks.disconnected = (id) => {
       this.stopTask(id, 'turtle went offline');
       const job = this.activeJobFor(id);
-      if (job && (job.view.status === 'running' || job.view.status === 'pausing')) this.pause(job.view.id, this.offlineReason(job));
+      if (job && (job.view.status === 'running' || job.view.status === 'pausing')) {
+        this.pause(job.view.id, this.offlineReason(job));
+        if (job.view.policy.autoResume) this.droppedAt.set(job.view.id, now());
+      }
     };
+    fleet.hooks.online = (id) => this.maybeAutoResume(id);
     fleet.hooks.removed = (id) => {
       const job = this.activeJobFor(id);
       if (job) this.cancel(job.view.id);
@@ -297,7 +305,7 @@ export class JobManager {
     }
     if (a.cx === b.cx && a.cz === b.cz) return 'turtle went offline';
     if (this.isForced(job.view.world, job.view.dimension, b.cx, b.cz)) return `turtle went offline moving into chunk ${b.cx},${b.cz} (marked force-loaded)`;
-    return `turtle went offline moving from chunk ${a.cx},${a.cz} into chunk ${b.cx},${b.cz}, which probably isn't loaded. A Chunk Controller only keeps the turtle's own chunk active: force-load the job's chunks (FTB Chunks) and mark them on the map, or stay nearby.`;
+    return `turtle went offline as it crossed from chunk ${a.cx},${a.cz} into chunk ${b.cx},${b.cz}`;
   }
 
   // ------------------------------------------------------------------ jobs
@@ -335,15 +343,10 @@ export class JobManager {
     if (toSite > 64) warnings.push(`The tunnel starts ${toSite} blocks from the dock; long trips use a lot of fuel.`);
     const turtle = this.fleet.getTurtle(j.turtleId);
     const chunks: ChunkNeed[] = jobChunks(p, depot.dock).map((c) => ({ ...c, forced: this.isForced(depot.world, depot.dimension, c.cx, c.cz) }));
-    const unmarked = chunks.filter((c) => !c.forced).length;
     if (turtle?.state && !hasChunkLoader(turtle.state.upgrades)) {
       warnings.push(`${turtle.name} has no Chunk Controller: it only keeps working while a player is near (its chunk must stay loaded).`);
     }
-    if (chunks.length > 1 && unmarked > 0) {
-      warnings.push(
-        `This job spans ${chunks.length} chunks; ${unmarked} aren't marked force-loaded. A turtle stops when it steps into a chunk nothing keeps loaded (a Chunk Controller only covers the chunk it is in). Force-load them with FTB Chunks and mark them on the map, or stay nearby.`,
-      );
-    }
+
     if (turtle && (turtle.world !== depot.world || turtle.dimension !== depot.dimension)) warnings.push(`The turtle is in ${turtle.world}/${turtle.dimension}, the depot in ${depot.world}/${depot.dimension}.`);
     return {
       estimate: {
@@ -436,6 +439,7 @@ export class JobManager {
     const job = this.mustGet(id);
     if (job.view.status !== 'ready' && job.view.status !== 'paused') throw new ApiError(409, `job is ${job.view.status}`);
     if (this.runners.has(id)) throw new ApiError(409, 'job is still stopping; try again in a moment');
+    this.droppedAt.delete(id);
     job.view.status = 'running';
     job.view.pauseReason = undefined;
     job.view.note = undefined;
@@ -452,6 +456,8 @@ export class JobManager {
   /** Pause after the current step. */
   pause(id: string, reason = 'paused by operator'): JobView {
     const job = this.mustGet(id);
+    // Any pause that isn't the turtle dropping (operator, manual control) cancels auto-resume.
+    if (!reason.startsWith('turtle went offline')) this.droppedAt.delete(id);
     if (job.view.status === 'running') {
       job.view.status = this.runners.has(id) ? 'pausing' : 'paused';
       job.view.pauseReason = reason;
@@ -465,6 +471,7 @@ export class JobManager {
 
   cancel(id: string): JobView {
     const job = this.mustGet(id);
+    this.droppedAt.delete(id);
     if (!ACTIVE.has(job.view.status)) throw new ApiError(409, `job is ${job.view.status}`);
     job.view.status = 'cancelled';
     job.view.phase = 'done';
@@ -485,6 +492,53 @@ export class JobManager {
     this.db.prepare('DELETE FROM jobs WHERE id=?').run(id);
     this.fleet.broadcast({ type: 'job_removed', id });
     this.fleet.touchTurtle(job.view.turtleId);
+  }
+
+  // ------------------------------------------------------------------ automatic resume
+
+  static readonly AUTO_RESUME_WINDOW_MS = 15 * 60_000;
+  static readonly AUTO_RESUME_PER_HOUR = 3;
+
+  /**
+   * A turtle is back. If its job paused only because the turtle dropped and the job
+   * opted in, resume it — within bounds, and only if the turtle knows where it is.
+   */
+  private maybeAutoResume(turtleId: string, attempt = 0): void {
+    const job = this.activeJobFor(turtleId);
+    if (!job) return;
+    const id = job.view.id;
+    const since = this.droppedAt.get(id);
+    if (since === undefined || !job.view.policy.autoResume) return;
+    if (job.view.status === 'pausing' || this.runners.has(id)) {
+      // The old run is still winding down; try again shortly.
+      if (attempt < 40) setTimeout(() => this.maybeAutoResume(turtleId, attempt + 1), 250);
+      return;
+    }
+    if (job.view.status !== 'paused') return;
+    const name = job.view.name;
+    const t = now();
+    this.droppedAt.delete(id);
+    if (t - since > JobManager.AUTO_RESUME_WINDOW_MS) {
+      this.log('warn', `Job "${name}" not resumed automatically: the turtle was gone for ${Math.round((t - since) / 60000)} min (limit 15)`, turtleId);
+      return;
+    }
+    const recent = (this.autoResumes.get(id) ?? []).filter((x) => t - x < 3600_000);
+    if (recent.length >= JobManager.AUTO_RESUME_PER_HOUR) {
+      this.log('warn', `Job "${name}" not resumed automatically: it already did so ${recent.length} times this hour`, turtleId);
+      return;
+    }
+    const st = this.fleet.getTurtle(turtleId)?.state;
+    if (!st || st.hold || st.pose.position !== 'known' || st.pose.headingConfidence !== 'known') {
+      this.log('warn', `Job "${name}" not resumed automatically: the turtle ${st?.hold ? 'is stopped' : 'is unsure of its position or heading'}`, turtleId);
+      return;
+    }
+    try {
+      this.start(id);
+      this.autoResumes.set(id, [...recent, t]);
+      this.log('info', `Job "${name}" resumed automatically after its turtle reconnected`, turtleId);
+    } catch (e) {
+      this.log('warn', `Job "${name}" not resumed automatically: ${(e as Error).message}`, turtleId);
+    }
   }
 
   // ------------------------------------------------------------------ campaigns & group actions

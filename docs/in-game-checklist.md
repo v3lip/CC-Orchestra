@@ -35,8 +35,8 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.
 16. [ ] Map **▦ Chunks on**: the turtle's chunk is green "kept loaded". Non-chunky online turtles show a dashed blue "loaded now" chunk.
-17. [x] ~~Crossing chunks with only a Chunk Controller~~ — **fails** (seen 2026-10-18): the turtle shuts down when it steps into a chunk nothing else keeps loaded.
-18. [ ] **With FTB Chunks:** force-load the chunks a job needs (the job form outlines them), mark them on the map (**Mark force-loaded…**), and run the job while far away. The turtle crosses borders without dropping. Without marking, a drop while crossing shows *went offline moving from chunk A into chunk B, which probably isn't loaded*.
+17. [x] Crossing chunk borders far from the player works (confirmed: 500+ blocks away). One unexplained drop at a border on a long return trip was seen once (2026-10-18).
+18. [ ] **Auto-resume:** create a job with "Resume automatically if the turtle reconnects" ticked. If a turtle drops and comes back within 15 minutes, the job continues by itself (activity log: *resumed automatically*). If it happens again, note the close code in the activity log's *disconnected* line, and the AP debug lines if you enabled them (see minecraft-setup.md).
 19. [ ] Save & quit, then reload the world: turtles reconnect by themselves (their chunks are restored by Advanced Peripherals). Jobs show *paused (turtle went offline)*; resume them.
 
 Report: the job card's error box, plus the turtle's screen.

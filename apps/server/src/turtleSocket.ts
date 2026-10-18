@@ -118,9 +118,11 @@ export function handleTurtleSocket(ws: WebSocket, fleet: Fleet, remote: string, 
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
     clearTimeout(helloTimer);
-    if (turtleId) fleet.disconnect(turtleId, conn, 'socket closed');
+    // The close code tells a clean shutdown (1000/1001) from a link that just dropped (1006).
+    const why = reason?.length ? `${code}: ${reason.toString().slice(0, 80)}` : `${code}`;
+    if (turtleId) fleet.disconnect(turtleId, conn, `socket closed, code ${why}`);
   });
   ws.on('error', () => ws.close());
 }

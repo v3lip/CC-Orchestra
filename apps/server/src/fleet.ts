@@ -100,6 +100,8 @@ interface TurtleRec {
   stopWait?: { batchId: string; stopId: string; acked: boolean };
   releaseWait?: { batchId: string; stopId: string };
   saveTimer?: NodeJS.Timeout;
+  /** Set on connect; cleared (and hooks.online called) on the first snapshot. */
+  awaitingSnapshot?: boolean;
 }
 
 export interface StepResult {
@@ -114,6 +116,8 @@ export interface FleetHooks {
   /** Manual commands, stops or cancels were issued to these turtles. */
   operatorAction?(turtleIds: string[], kind: 'command' | 'stop' | 'cancel'): void;
   disconnected?(turtleId: string): void;
+  /** First full snapshot after a (re)connect: the turtle's state is current again. */
+  online?(turtleId: string): void;
   removed?(turtleId: string): void;
   /** Job summary for a turtle's view. */
   jobOf?(turtleId: string): TurtleView['job'];
@@ -450,6 +454,7 @@ export class Fleet {
     }
     const rebooted = rec.bootId !== undefined && rec.bootId !== hello.bootId;
     rec.conn = conn;
+    rec.awaitingSnapshot = true;
     rec.bootId = hello.bootId;
     rec.label = hello.label ?? rec.label;
     rec.agentVersion = hello.agent.version;
@@ -613,6 +618,10 @@ export class Fleet {
     }
     this.scheduleSave(rec);
     this.touch(rec);
+    if (full && rec.awaitingSnapshot) {
+      rec.awaitingSnapshot = false;
+      this.hooks.online?.(rec.id);
+    }
   }
 
   ack(turtleId: string, commandId: string, status: 'accepted' | 'rejected' | 'duplicate', code?: string, reason?: string): void {

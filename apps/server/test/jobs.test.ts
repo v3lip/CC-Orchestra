@@ -363,20 +363,18 @@ describe('chunk loading', () => {
 });
 
 describe('chunk borders', () => {
-  it('the estimate lists the chunks a job needs and warns about unmarked ones', async () => {
+  it('the estimate lists the chunks a job uses and which are marked force-loaded', async () => {
     const { server, world, depot } = await setup();
     const t = await sim(server, world);
     const long = tunnel(t.turtleId!, depot.id, { length: 20 }); // x 2..21 crosses x=16
     const e1 = server.jobs.estimate(long);
     expect(e1.chunks.map((c) => `${c.cx},${c.cz}`).sort()).toEqual(['0,0', '1,0']);
-    expect(e1.warnings.some((w) => w.includes("aren't marked force-loaded"))).toBe(true);
     for (const c of e1.chunks) server.jobs.setForced('sim', 'minecraft:overworld', c.cx, c.cz, true);
     const e2 = server.jobs.estimate(long);
     expect(e2.chunks.every((c) => c.forced)).toBe(true);
-    expect(e2.warnings.some((w) => w.includes("aren't marked force-loaded"))).toBe(false);
   });
 
-  it('going offline while crossing into an unmarked chunk is diagnosed as such', async () => {
+  it('going offline while crossing a chunk border says so', async () => {
     const { server, world, depot } = await setup();
     const t = await sim(server, world);
     const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 20 }));
@@ -393,7 +391,39 @@ describe('chunk borders', () => {
     const done = await finish(server, job.id);
     clearInterval(watch);
     expect(done.status).toBe('paused');
-    expect(done.pauseReason).toMatch(/from chunk 0,0 into chunk 1,0, which probably isn't loaded/);
+    expect(done.pauseReason).toBe('turtle went offline as it crossed from chunk 0,0 into chunk 1,0');
+  });
+});
+
+describe('auto-resume (opt-in)', () => {
+  it('a job paused because its turtle dropped continues when the turtle comes back', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world);
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 8 }, { autoResume: true }));
+    server.jobs.start(job.id);
+    await waitFor(() => (server.jobs.getJob(job.id)?.progress.cellsCleared ?? 0) >= 4);
+    t.dropConnection(); // the simulated turtle reconnects by itself after ~1 s
+    await waitFor(() => server.jobs.getJob(job.id)?.status === 'paused', 5000, 'pause on drop');
+    const done = await waitFor(() => (server.jobs.getJob(job.id)?.status === 'completed' ? server.jobs.getJob(job.id) : undefined), 30000, 'completion');
+    expect(done.status).toBe('completed');
+    expect(server.fleet.recentEvents(80).some((e) => e.message.includes('resumed automatically'))).toBe(true);
+    expect(server.fleet.recentEvents(80).some((e) => /disconnected \(socket closed, code \d+/.test(e.message))).toBe(true);
+    expect(allClear(world, 1, 2, 8)).toBe('clear');
+  });
+
+  it('never resumes a job the operator paused', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world);
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 8 }, { autoResume: true }));
+    server.jobs.start(job.id);
+    await waitFor(() => (server.jobs.getJob(job.id)?.progress.cellsCleared ?? 0) >= 2);
+    server.jobs.pause(job.id);
+    await waitFor(() => server.jobs.getJob(job.id)?.status === 'paused', 5000);
+    t.dropConnection();
+    await waitFor(() => server.fleet.getTurtle(t.turtleId!)?.connection === 'offline', 5000);
+    await waitFor(() => server.fleet.getTurtle(t.turtleId!)?.connection === 'online', 8000);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(server.jobs.getJob(job.id)?.status).toBe('paused');
   });
 });
 

@@ -601,7 +601,7 @@ function drawChunks(
     ctx.stroke();
   }
   const style: Record<ChunkState, { fill: string; stroke: string; dash: number[]; label: string }> = {
-    kept: { fill: 'rgba(74,222,128,0.10)', stroke: 'rgba(74,222,128,0.75)', dash: [], label: 'kept loaded (its own chunk only)' },
+    kept: { fill: 'rgba(74,222,128,0.10)', stroke: 'rgba(74,222,128,0.75)', dash: [], label: 'kept loaded' },
     active: { fill: 'rgba(56,189,248,0.06)', stroke: 'rgba(56,189,248,0.5)', dash: [4, 3], label: 'loaded (turtle active)' },
     lastKept: { fill: 'rgba(251,191,36,0.06)', stroke: 'rgba(251,191,36,0.7)', dash: [6, 4], label: 'chunky turtle offline' },
   };
@@ -664,9 +664,9 @@ function ChunkToggle() {
             <span className="text-violet-300">■</span> marked force-loaded (by you)
           </div>
           <div>
-            <span className="text-rose-300">▢</span> a draft job needs it, not marked
+            <span className="text-rose-300">▢</span> a draft job uses it (not marked)
           </div>
-          <div className="text-slate-400">A Chunk Controller covers only the turtle's own chunk: chunks a job crosses must be loaded some other way.</div>
+          <div className="text-slate-400">A Chunk Controller keeps the turtle's own chunk loaded and moves with it. Marking is optional: use it for chunks you force-load yourself (FTB Chunks).</div>
           <div className="text-slate-500">Chunks loaded by players or other mods aren't shown.</div>
         </div>
       )}
