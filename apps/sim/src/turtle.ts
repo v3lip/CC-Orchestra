@@ -24,6 +24,7 @@ import {
   type Vec3,
   type Activity,
   type ErrorCode,
+  DEFAULT_PROTECTED_BLOCKS,
   MAX_RECENT_RESULTS,
   MOVE_OPS,
   PHYSICAL_OPS,
@@ -38,7 +39,7 @@ import {
 import { SimWorld, type TurtleBody } from './world';
 import * as physics from './physics';
 
-export const SIM_AGENT_VERSION = 'sim-0.1.0';
+export const SIM_AGENT_VERSION = 'sim-0.3.0';
 
 export interface Journal {
   commandId: string;
@@ -126,6 +127,7 @@ export class SimTurtle {
   private msgSeq = 0;
   private bootId = '';
   private scanOnMove = true;
+  private protectedBlocks: string[] = [...DEFAULT_PROTECTED_BLOCKS];
   private opMs: number;
 
   constructor(private opts: SimTurtleOptions) {
@@ -338,6 +340,7 @@ export class SimTurtle {
         this.name = msg.name;
         this.clockOffset = msg.serverTime - Date.now();
         this.scanOnMove = msg.config.scanOnMove;
+        if (Array.isArray(msg.config.protectedBlocks)) this.protectedBlocks = msg.config.protectedBlocks;
         clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = setInterval(() => this.send({ type: 'hb', seq: ++this.hbSeq, fuel: this.body.fuel }), msg.heartbeatMs);
         this.sendSnapshot();
@@ -495,6 +498,11 @@ export class SimTurtle {
       case 'digDown': {
         const dir = op === 'dig' ? 'front' : op === 'digUp' ? 'up' : 'down';
         await this.physical(gen);
+        if (physics.inventoryAt(this.world, b, dir)) return { ok: false, code: 'protected', reason: 'refusing to dig a block with an inventory' };
+        const target = physics.inspect(this.world, b, dir);
+        if (target && !args.force && this.protectedBlocks.some((p) => target.name.includes(p))) {
+          return { ok: false, code: 'protected', reason: `protected block ${target.name}` };
+        }
         const dug = physics.dig(this.world, b, dir);
         if (!dug.ok) return { ok: false, code: classifyReason(dug.reason), reason: dug.reason };
         await this.scan(gen, [dir]);
@@ -532,6 +540,44 @@ export class SimTurtle {
         this.mem.pose = { ...before, pos, position: 'known', source: 'gps', candidates: undefined };
         this.persist();
         return { ok: true, data: { ...pos, agreedWithTracking: !!agrees } };
+      }
+      case 'drop': {
+        const dir = args.dir as physics.Dir;
+        const slot = args.slot as number;
+        if (!physics.inventoryAt(this.world, b, dir)) return { ok: false, code: 'no_inventory', reason: `no inventory ${dir}; refusing to drop items into the world` };
+        const item = b.slots[slot - 1];
+        if (!item) return { ok: true, data: { dropped: 0 } };
+        const inv = physics.inventoryAt(this.world, b, dir)!;
+        const count = (n: string) => inv.reduce((t, s) => t + (s?.name === n ? s.count : 0), 0);
+        const name = item.name;
+        const before = item.count;
+        const chestBefore = count(name);
+        b.selected = slot;
+        const r = physics.drop(this.world, b, dir, args.count as number | undefined);
+        const left = b.slots[slot - 1]?.name === name ? b.slots[slot - 1]!.count : 0;
+        const dropped = before - left;
+        if (dropped <= 0) return { ok: false, code: 'inventory_full', reason: r.ok ? 'the inventory accepted nothing' : r.reason };
+        const want = (args.count as number | undefined) ?? before;
+        const gain = count(name) - chestBefore;
+        return { ok: true, data: { item: name, dropped, requested: want, partial: dropped < want, chestGain: gain, verified: gain === dropped } };
+      }
+      case 'suck': {
+        const dir = args.dir as physics.Dir;
+        if (!physics.inventoryAt(this.world, b, dir)) return { ok: false, code: 'no_inventory', reason: `no inventory ${dir}` };
+        const before = b.slots.map((s) => s?.count ?? 0);
+        b.selected = args.slot as number;
+        const r = physics.suck(this.world, b, dir, args.count as number | undefined);
+        const slots = b.slots.flatMap((s, i) => ((s?.count ?? 0) > before[i] ? [{ slot: i + 1, name: s!.name, count: s!.count - before[i] }] : []));
+        return { ok: true, data: { taken: slots.reduce((t, x) => t + x.count, 0), slots, ...(r.ok ? {} : { reason: r.reason }) } };
+      }
+      case 'inventoryInfo': {
+        const dir = args.dir as physics.Dir;
+        const inv = physics.inventoryAt(this.world, b, dir);
+        if (!inv) return { ok: false, code: 'no_inventory', reason: `no inventory ${dir}` };
+        const totals = new Map<string, number>();
+        for (const s of inv) if (s) totals.set(s.name, (totals.get(s.name) ?? 0) + s.count);
+        const used = inv.filter(Boolean).length;
+        return { ok: true, data: { block: physics.inspect(this.world, b, dir)?.name, size: inv.length, used, free: inv.length - used, items: [...totals].slice(0, 32).map(([name, count]) => ({ name, count })) } };
       }
       case 'setLabel':
         this.opts.label = args.label as string;

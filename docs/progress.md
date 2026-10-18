@@ -1,5 +1,35 @@
 # Progress notes
 
+## Milestone 3 — tunnel job, automatic return, verified unloading, resume ✅ (2026-10-18; in-game check pending)
+
+**Implemented**
+
+- Jobs: persisted (SQLite migration 2), lifecycle ready/running/pausing/paused/completed/cancelled, checkpoint per slice, resume after pause/disconnect/backend restart (never automatic).
+- Tunnel strategy (W×H×L from an origin and heading) with serpentine lanes (one pass clears 3 rows), exclusions, and progress (slices, cells, skipped, trips, items).
+- Navigation: A* over observed map knowledge. It digs only inside the job volume, never protected blocks, and treats other turtles (offline included) and depot chests as walls. Bounded re-planning and gravel retries.
+- Depots: dock cell + heading, unload chest side, optional fuel chest side; dock lock (held while a turtle is offline there).
+- Service trips: inventory threshold and fuel-to-get-home checks; verified unloading (fuel slot and keep slots preserved); fuel-chest top-up, with non-fuel returned; carried fuel burned only when needed; insufficient fuel stops the job at the dock.
+- Agent 0.3.0 (Lua and simulated): verified `drop` (refuses without an inventory, checks counts), `suck` (inventories only), `inventoryInfo`, and a dig guard (never digs inventories; protected-name list unless `force`). Jobs refuse agents older than 0.3.0.
+- Manual command / stop / cancel on a turtle pauses its job after the current step.
+- Dashboard: Turtle/Jobs/Depots tabs; depot form ("use this turtle as the dock") with setup guidance; tunnel form ("start in front of the turtle"), policy, live estimate and warnings; job cards with progress, errors and controls; map overlays for depots, tunnel outlines and progress, draft preview, and planned route. The turtle status shows working/returning/unloading from the job phase.
+- Turtle message rate limit raised from 60/s to 300/s. In-game, back-to-back one-tick ops (inspect, drop) could exceed 60/s.
+- `npm run sim` creates a ready depot site (chest west of the first turtle, fuel chest with coal under it).
+
+**Verified — outside Minecraft only**
+
+`npm test`: 45 tests (15 new for jobs). TS agent: 1×2×8 tunnel and unload; 3×3×6 with mid-job trips, resume and fuel slot kept; missing chest (pauses, **no items spilled**, resumes after fixing); full chest (partial transfer detected); protected block never dug; gravel column; manual takeover then resume; disconnect then resume; refuel from a fuel chest; insufficient fuel (stops at home); backend restart then resume from checkpoint. Real Lua agent: tunnel with verified unloading and fuel slot kept; missing chest (no spill); agent refuses to dig an inventory even with `force`. Plus the agent version gate.
+Also clicked through by hand on a separate test instance: depot form, job form with map preview and estimate, a 1×2×32 job running, returning and completing, with the route and progress drawn on the map.
+
+**Not verified:** in-game. The key unknown is whether `peripheral.wrap("front"/"top"/"bottom")` exposes the adjacent chest's inventory on your CC: Tweaked 1.100.2 turtle. If it doesn't, unloading refuses (safely) and the job pauses with "No chest". Checklist step 2 confirms it.
+
+**Known limitations**
+
+- One turtle per job. Multi-turtle partitioning, dock queues/waiting positions and cell reservations are Milestone 4.
+- Estimates are rough (assume rock, ~640 blocks per trip).
+- Return-home cost uses Manhattan distance × 1.25 + 10, not the real path length. Keep `fuelReserve` generous for winding routes.
+- Fluids are walked through, not sealed. Lava flowing into a tunnel isn't handled specially.
+- The route to and from the dock must be open: travel never digs outside the job volume. A blocked route pauses with `no_route`.
+
 ## Milestone 2 — Lua agent, pairing, telemetry, calibration, manual control ✅ (2026-10-18; in-game check pending)
 
 **Implemented**
@@ -70,6 +100,6 @@ Also exercised by hand in the browser against 6 simulated turtles: selection, ke
 - Simulator terrain is not real Minecraft terrain. Fluids don't flow, and gravel only falls into empty cells.
 - Turtle movement in the simulator happens in parallel, which is optimistic compared with real tick timing.
 
-## Next: Milestone 3 — one reliable tunnel job, automatic return, unloading and resume
+## Next: Milestone 4 — multi-turtle scheduling, groups, depot queues, collision handling
 
-Job model with persisted checkpoints. A server-side tunnel planner issuing atomic steps through the existing queue (manual control pauses the job). Depot setup (chest, dock, unload direction). Verified unloading via the chest's inventory peripheral (count before/after; never blind `drop`). Return when inventory or fuel crosses a threshold, then resume at the saved position.
+Split a job into lanes or work units per turtle, with ownership. Cell and edge reservations between turtles (no head-on swaps, deadlock detection in narrow corridors). Depot queue with waiting positions. Group-wide job start/pause.

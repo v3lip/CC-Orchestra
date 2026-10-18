@@ -90,3 +90,86 @@ export function refuel(body: TurtleBody, count?: number): { ok: true; used: numb
   if (used === 0) return { ok: false, reason: 'Fuel limit reached' };
   return { ok: true, used };
 }
+
+/** The inventory next to the turtle, if any. Another turtle also counts as an inventory. */
+export function inventoryAt(world: SimWorld, body: TurtleBody, dir: Dir): (SimItem | null)[] | undefined {
+  const p = adjacentCell(body, dir);
+  const k = `${p.x},${p.y},${p.z}`;
+  const occupant = world.occupants.get(k);
+  if (occupant) return occupant.slots;
+  return world.inventories.get(k);
+}
+
+/** Insert into an inventory: stack onto matching stacks, then empty slots. Returns how many fit. */
+export function insert(inv: (SimItem | null)[], name: string, count: number): number {
+  let left = count;
+  for (const s of inv) {
+    if (s && s.name === name && s.count < 64) {
+      const n = Math.min(64 - s.count, left);
+      s.count += n;
+      left -= n;
+      if (!left) return count;
+    }
+  }
+  for (let i = 0; i < inv.length && left > 0; i++) {
+    if (!inv[i]) {
+      const n = Math.min(64, left);
+      inv[i] = { name, count: n };
+      left -= n;
+    }
+  }
+  return count - left;
+}
+
+/**
+ * turtle.drop[Up|Down]([count]) from the selected slot. Like CC: with no inventory there,
+ * the items are thrown into the world (counted in world.spilled).
+ */
+export function drop(world: SimWorld, body: TurtleBody, dir: Dir, count?: number): { ok: true } | { ok: false; reason: string } {
+  const slot = body.slots[body.selected - 1];
+  if (!slot) return { ok: false, reason: 'No items to drop' };
+  const n = Math.min(count ?? slot.count, slot.count);
+  const inv = inventoryAt(world, body, dir);
+  let moved: number;
+  if (!inv) {
+    world.spilled += n;
+    moved = n;
+  } else {
+    moved = insert(inv, slot.name, n);
+    if (moved === 0) return { ok: false, reason: 'No space for items' };
+  }
+  slot.count -= moved;
+  if (slot.count === 0) body.slots[body.selected - 1] = null;
+  return { ok: true };
+}
+
+/** turtle.suck[Up|Down]([count]) from an adjacent inventory into the selected slot onwards. */
+export function suck(world: SimWorld, body: TurtleBody, dir: Dir, count?: number): { ok: true } | { ok: false; reason: string } {
+  const inv = inventoryAt(world, body, dir);
+  if (!inv) return { ok: false, reason: 'No items to take' };
+  const idx = inv.findIndex((s) => s && s.count > 0);
+  if (idx < 0) return { ok: false, reason: 'No items to take' };
+  const src = inv[idx]!;
+  const want = Math.min(count ?? 64, src.count);
+  // Items go to the selected slot first, then onwards (wrapping), like CC.
+  const order = Array.from({ length: 16 }, (_, i) => (body.selected - 1 + i) % 16);
+  let left = want;
+  for (const i of order) {
+    const s = body.slots[i];
+    if (s && s.name === src.name && s.count < 64) {
+      const n = Math.min(64 - s.count, left);
+      s.count += n;
+      left -= n;
+    } else if (!s) {
+      const n = Math.min(64, left);
+      body.slots[i] = { name: src.name, count: n };
+      left -= n;
+    }
+    if (!left) break;
+  }
+  const taken = want - left;
+  if (taken === 0) return { ok: false, reason: 'No space for items' };
+  src.count -= taken;
+  if (src.count === 0) inv[idx] = null;
+  return { ok: true };
+}

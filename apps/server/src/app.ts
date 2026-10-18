@@ -10,6 +10,7 @@ import type { Config } from './config';
 import { openDb, type Db } from './db';
 import { ApiError, Fleet, type FleetOptions } from './fleet';
 import { handleTurtleSocket } from './turtleSocket';
+import { JobManager } from './jobs/manager';
 import { digestEquals, now, randomToken, sha256 } from './util';
 
 const SESSION_COOKIE = 'ccf_session';
@@ -21,9 +22,10 @@ const TargetsSchema = z.object({
   all: z.boolean().optional(),
 });
 
-export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?: Db; logger?: boolean } = {}) {
+export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?: Db; logger?: boolean; turtleRateLimit?: number } = {}) {
   const db = opts.db ?? openDb(config.dbFile);
   const fleet = new Fleet(db, opts.fleet);
+  const jobs = new JobManager(db, fleet);
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 256 * 1024 });
 
   await app.register(cookie);
@@ -163,6 +165,25 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
       return fleet.queryMap(q);
     });
 
+    api.get('/api/depots', async () => jobs.listDepots());
+    api.post('/api/depots', async (req) => jobs.saveDepot(req.body));
+    api.put('/api/depots/:id', async (req) => jobs.saveDepot(req.body, (req.params as { id: string }).id));
+    api.delete('/api/depots/:id', async (req) => {
+      jobs.deleteDepot((req.params as { id: string }).id);
+      return { ok: true };
+    });
+
+    api.get('/api/jobs', async () => jobs.listJobs());
+    api.post('/api/jobs/estimate', async (req) => jobs.estimate(req.body));
+    api.post('/api/jobs', async (req) => jobs.createJob(req.body));
+    api.post('/api/jobs/:id/start', async (req) => jobs.start((req.params as { id: string }).id));
+    api.post('/api/jobs/:id/pause', async (req) => jobs.pause((req.params as { id: string }).id));
+    api.post('/api/jobs/:id/cancel', async (req) => jobs.cancel((req.params as { id: string }).id));
+    api.delete('/api/jobs/:id', async (req) => {
+      jobs.deleteJob((req.params as { id: string }).id);
+      return { ok: true };
+    });
+
     api.get('/ws/ui', { websocket: true }, (socket) => {
       socket.send(JSON.stringify(fleet.initMessage()));
       const off = fleet.subscribe((m) => {
@@ -175,7 +196,7 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
 
   // ---------------------------------------------------------------- turtles
 
-  app.get('/ws/turtle', { websocket: true }, (socket, req) => handleTurtleSocket(socket, fleet, req.ip));
+  app.get('/ws/turtle', { websocket: true }, (socket, req) => handleTurtleSocket(socket, fleet, req.ip, opts.turtleRateLimit));
 
   if (existsSync(config.turtleDir)) {
     // The installer gets this backend's public URL baked in.
@@ -205,9 +226,10 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
   }
 
   app.addHook('onClose', async () => {
+    jobs.close();
     fleet.close();
     db.close();
   });
 
-  return { app, fleet, db };
+  return { app, fleet, jobs, db };
 }

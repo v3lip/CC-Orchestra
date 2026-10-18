@@ -99,9 +99,9 @@ export function CommandBar() {
           <Btn disabled={none} onClick={() => runBatch(api.stop({ turtleIds: ids }, 'pause'))} title="Pause after the current atomic action">Pause</Btn>
           <Btn disabled={none} onClick={() => runBatch(api.resume({ turtleIds: ids }))}>Resume</Btn>
           <Btn disabled={none} onClick={() => runBatch(api.cancel({ turtleIds: ids }))} title="Cancel queued commands">Cancel</Btn>
-          <Btn disabled title="Needs a depot — Milestone 3">Home</Btn>
-          <Btn disabled title="Needs a depot — Milestone 3">Unload</Btn>
-          <Btn disabled title="Mining jobs — Milestone 3">Start job</Btn>
+          <Btn onClick={() => useFleet.getState().setRightTab('jobs')} title="Mining jobs (return, unloading and refuelling happen inside jobs)">
+            Jobs…
+          </Btn>
         </Group>
         <button
           disabled={none}

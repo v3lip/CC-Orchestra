@@ -8,6 +8,8 @@ import { CommandBar } from './components/CommandBar';
 import { ResultsPanel } from './components/ResultsPanel';
 import { ActivityLog } from './components/ActivityLog';
 import { EnrollDialog } from './components/EnrollDialog';
+import { JobsPanel } from './components/JobsPanel';
+import { DepotsPanel } from './components/DepotsPanel';
 
 export function App() {
   const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking');
@@ -135,8 +137,11 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           </div>
         </main>
 
-        <aside className="w-80 shrink-0 overflow-y-auto border-l border-edge bg-panel">
-          <DetailsPanel />
+        <aside className="flex w-80 shrink-0 flex-col border-l border-edge bg-panel">
+          <RightTabs />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <RightPanel />
+          </div>
         </aside>
       </div>
 
@@ -267,4 +272,34 @@ function YSlider() {
       </label>
     </div>
   );
+}
+
+function RightTabs() {
+  const tab = useFleet((s) => s.rightTab);
+  const setTab = useFleet((s) => s.setRightTab);
+  const jobs = useFleet((s) => s.jobs);
+  const active = Object.values(jobs).filter((j) => j.status === 'running' || j.status === 'pausing').length;
+  const attention = Object.values(jobs).some((j) => j.status === 'paused' && j.error);
+  const tabs: { id: 'turtle' | 'jobs' | 'depots'; label: string; alert?: boolean }[] = [
+    { id: 'turtle', label: 'Turtle' },
+    { id: 'jobs', label: `Jobs${active ? ` · ${active} running` : ''}`, alert: attention },
+    { id: 'depots', label: 'Depots' },
+  ];
+  return (
+    <div className="flex shrink-0 border-b border-edge text-xs">
+      {tabs.map((t) => (
+        <button key={t.id} onClick={() => setTab(t.id)} className={`relative flex-1 px-2 py-1.5 ${tab === t.id ? 'border-b-2 border-cyan-400 text-ink' : 'text-dim hover:text-ink'}`}>
+          {t.label}
+          {t.alert && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-400" title="A job needs attention" />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RightPanel() {
+  const tab = useFleet((s) => s.rightTab);
+  if (tab === 'jobs') return <JobsPanel />;
+  if (tab === 'depots') return <DepotsPanel />;
+  return <DetailsPanel />;
 }

@@ -1,6 +1,30 @@
-# In-game verification checklist (Milestone 2)
+# In-game verification checklist
 
-None of this has been checked inside Minecraft yet. The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node), not in CC: Tweaked itself. Work through this list once in your world and note anything that differs.
+The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node), not in CC: Tweaked itself. Milestone 2 has been confirmed in-game (connected, position tracking, mapping, obstruction). Milestone 3 has not been tested in-game yet.
+
+## Milestone 3: tunnel job, depot, unloading
+
+**Update first.** Restart the backend (`npm start`) so it loads Milestone 3 and migrates the database. Then on each turtle run `install` (no code; it keeps identity and position). The turtle screen should show `lua-0.3.0`. Jobs refuse to start on older agents.
+
+1. [ ] Build a depot next to a rock face (see [minecraft-setup.md](minecraft-setup.md#depot-for-jobs)): a dock cell, a chest in front of / above / below it, and optionally a fuel chest with some coal. Put a few coal in the turtle's slot 16.
+2. [ ] **Key check: chest as a peripheral.** Park the turtle on the dock. Press Ctrl+T to stop the agent, then run `lua` and `peripheral.wrap("front").list()` (or `"top"`/`"bottom"` for a chest above or below). It must return a table, not an error or `nil`. If it doesn't, unloading will safely refuse to drop anything; tell me. Afterwards `exit()` and `startup` to restart the agent.
+3. [ ] Dashboard → **Depots** → **New depot** → "Use … as the dock" → set the facing/chest sides → Save. The dock (cyan) and chest (`C`/`F`) markers appear on the map.
+4. [ ] Drive the turtle to the tunnel mouth facing the rock. **Jobs** → **New tunnel** → "Start the tunnel in front of the turtle" → 1×2×16 → check the dashed preview on the map → **Create & start**.
+5. [ ] The job runs: status *running*, phases mining → returning → unloading. The turtle digs only inside the outline. The map fills in the tunnel.
+6. [ ] When done, it returns to the dock, faces the chest, and unloads everything except coal in slot 16. Compare the chest contents with "items unloaded" on the job card.
+7. [ ] **Mid-job return:** start a longer tunnel (1×2×64) with "Return when free slots ≤" set to 13. It goes home partway, unloads, walks back to where it stopped, and continues.
+8. [ ] **Manual takeover:** while it's mining, press W. The job shows *paused: manual control took over* after the current block. **Resume** continues the tunnel.
+9. [ ] **E-STOP during a job:** it stops after the current action; the job pauses. Resume the turtle (Control → Resume), then resume the job.
+10. [ ] **Missing chest:** break the depot chest and start a short job. At unload time the job pauses with "No chest … nothing was dropped". **No items on the ground.** Replace the chest and resume.
+11. [ ] **Protected block:** place a chest inside a planned tunnel's outline. The job pauses with a "Protected block" error and the chest is intact.
+12. [ ] **Gravel:** tunnel through gravel or sand. Falling blocks are re-dug, and the tunnel ends up clear.
+13. [ ] **Chunk unload:** walk away mid-job. The turtle goes offline, the job pauses (*turtle went offline*), and the dashboard keeps its last position. Come back, then resume the job.
+
+Report: the job card's error box, plus the turtle's screen.
+
+---
+
+# Milestone 2 checklist (confirmed in-game)
 
 ## Before you start
 

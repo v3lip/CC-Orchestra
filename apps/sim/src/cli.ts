@@ -41,7 +41,22 @@ if (values.reset && existsSync(dataDir)) rmSync(dataDir, { recursive: true });
 mkdirSync(dataDir, { recursive: true });
 
 const worldFile = join(dataDir, 'world.json');
-const world = existsSync(worldFile) ? SimWorld.fromJSON(JSON.parse(readFileSync(worldFile, 'utf8'))) : new SimWorld(Number(values.seed));
+const freshWorld = !existsSync(worldFile);
+const world = freshWorld ? new SimWorld(Number(values.seed)) : SimWorld.fromJSON(JSON.parse(readFileSync(worldFile, 'utf8')));
+
+// A fresh world gets a ready-made depot next to the first turtle's start (x=0, z=0):
+// an unload chest to its west and a fuel chest with coal under it.
+const depotHint = (() => {
+  const y = world.surfaceY(0, 0) + 1;
+  if (freshWorld) {
+    for (let cy = y; cy < y + 3; cy++) world.set(-1, cy, 0, null);
+    world.placeChest({ x: -1, y, z: 0 }, 54);
+    world.placeChest({ x: 0, y: y - 1, z: 0 });
+    world.inventories.get(`0,${y - 1},0`)![0] = { name: 'minecraft:coal', count: 64 };
+    world.inventories.get(`0,${y - 1},0`)![1] = { name: 'minecraft:coal', count: 64 };
+  }
+  return `dock 0 ${y} 0 facing west, unload chest in front, fuel chest below`;
+})();
 
 class FileStore implements MemoryStore {
   constructor(private file: string) {}
@@ -154,4 +169,5 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     process.exit(0);
   });
 }
+console.log(`[sim] depot site: ${depotHint}`);
 console.log(`[sim] ${count} simulated turtle(s)${values.lua ? ' running the real Lua agent' : ''} → ${wsUrl} (op time ${opMs} ms, data in ${dataDir})`);

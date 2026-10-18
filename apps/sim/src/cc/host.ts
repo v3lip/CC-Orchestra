@@ -295,6 +295,11 @@ export class CCTurtle {
           const r = physics.dig(this.world, body, dir(name));
           respond(r.ok, r.ok ? undefined : r.reason);
         });
+      } else if (/^(drop|suck)(Up|Down)?$/.test(name)) {
+        later(quick, () => {
+          const r = name.startsWith('drop') ? physics.drop(this.world, body, dir(name), arg ?? undefined) : physics.suck(this.world, body, dir(name), arg ?? undefined);
+          respond(r.ok, r.ok ? undefined : r.reason);
+        });
       } else if (name === 'refuel') {
         later(quick, () => {
           const r = physics.refuel(body, arg ?? undefined);
@@ -314,6 +319,11 @@ export class CCTurtle {
     g.set('__turtle_item', (s: number) => {
       const it = body.slots[s - 1];
       return it ? JSON.stringify({ name: it.name, count: it.count }) : undefined;
+    });
+    g.set('__inv_size', (d: physics.Dir) => physics.inventoryAt(this.world, body, d)?.length);
+    g.set('__inv_list', (d: physics.Dir) => {
+      const inv = physics.inventoryAt(this.world, body, d);
+      return inv ? JSON.stringify(inv.flatMap((it, i) => (it ? [{ slot: i + 1, name: it.name, count: it.count }] : []))) : undefined;
     });
     g.set('__has_modem', () => !!this.opts.gps);
     g.set('__gps', () => (this.opts.gps ? `${body.pos.x},${body.pos.y},${body.pos.z}` : undefined));

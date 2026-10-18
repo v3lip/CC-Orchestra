@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { TurtleView } from '@ccfleet/protocol';
+import type { DepotView, JobView, TunnelParams, TurtleView } from '@ccfleet/protocol';
+import { HEADING_VECTORS } from '@ccfleet/protocol';
 import { mapCache, useFleet } from '../lib/store';
 import { STATUS_COLOR, blockColor, shortItem, statusOf } from '../lib/status';
 
@@ -33,6 +34,9 @@ export function MapView() {
   const y = useFleet((s) => s.y);
   const mapVersion = useFleet((s) => s.mapVersion);
   const centerTarget = useFleet((s) => s.centerTarget);
+  const jobs = useFleet((s) => s.jobs);
+  const depots = useFleet((s) => s.depots);
+  const jobDraft = useFleet((s) => s.jobDraft);
 
   const visibleTurtles = Object.values(turtles).filter((t) => t.world === world && t.dimension === dimension && t.state?.pose.pos);
 
@@ -130,6 +134,15 @@ export function MapView() {
     ctx.moveTo(0, toSy(0));
     ctx.lineTo(w, toSy(0));
     ctx.stroke();
+
+    // Depots, job volumes, planned routes.
+    for (const d of Object.values(depots)) if (d.world === world && d.dimension === dimension) drawDepot(ctx, d, toSx, toSy, s, y);
+    for (const j of Object.values(jobs)) {
+      if (j.world !== world || j.dimension !== dimension || j.status === 'completed' || j.status === 'cancelled') continue;
+      drawTunnel(ctx, j.params, toSx, toSy, s, y, j.progress.unitsDone, false);
+      if (j.route?.length) drawRoute(ctx, j, toSx, toSy, y);
+    }
+    if (jobDraft) drawTunnel(ctx, jobDraft, toSx, toSy, s, y, 0, true);
 
     // Turtles.
     const sel = new Set(selection);
@@ -398,4 +411,103 @@ function Legend() {
       <span className="flex items-center gap-1 text-amber-300">? uncertain pose</span>
     </div>
   );
+}
+
+function tunnelCorner(p: TunnelParams, d: number, w: number) {
+  const f = HEADING_VECTORS[p.heading];
+  const r = HEADING_VECTORS[(p.heading + 1) % 4];
+  return { x: p.origin.x + f.x * d + r.x * w, z: p.origin.z + f.z * d + r.z * w };
+}
+
+/** Outline of a tunnel at this Y level; finished slices shaded; drafts dashed. */
+function drawTunnel(ctx: CanvasRenderingContext2D, p: TunnelParams, toSx: (x: number) => number, toSy: (z: number) => number, s: number, y: number, done: number, draft: boolean) {
+  const onLevel = y >= p.origin.y && y < p.origin.y + p.height;
+  const rect = (d0: number, d1: number) => {
+    const a = tunnelCorner(p, d0, 0);
+    const b = tunnelCorner(p, d1, p.width - 1);
+    const x0 = Math.min(a.x, b.x);
+    const z0 = Math.min(a.z, b.z);
+    return [toSx(x0), toSy(z0), (Math.abs(a.x - b.x) + 1) * s, (Math.abs(a.z - b.z) + 1) * s] as const;
+  };
+  ctx.save();
+  if (done > 0 && onLevel) {
+    ctx.fillStyle = 'rgba(34,211,238,0.10)';
+    ctx.fillRect(...rect(0, done - 1));
+  }
+  ctx.strokeStyle = draft ? '#e879f9' : '#22d3ee';
+  ctx.globalAlpha = onLevel ? 0.9 : 0.3;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash(draft ? [6, 4] : onLevel ? [] : [2, 4]);
+  const [rx, ry, rw, rh] = rect(0, p.length - 1);
+  ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
+  // Arrow at the entrance showing the digging direction.
+  const o = tunnelCorner(p, 0, 0);
+  const f = HEADING_VECTORS[p.heading];
+  const cx = toSx(o.x + 0.5 - f.x);
+  const cy = toSy(o.z + 0.5 - f.z);
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + f.x * s * 0.9, cy + f.z * s * 0.9);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRoute(ctx: CanvasRenderingContext2D, j: JobView, toSx: (x: number) => number, toSy: (z: number) => number, y: number) {
+  ctx.save();
+  ctx.strokeStyle = '#a3e635';
+  ctx.setLineDash([2, 3]);
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.8;
+  ctx.beginPath();
+  j.route!.forEach((c, i) => {
+    const px = toSx(c.x + 0.5);
+    const py = toSy(c.z + 0.5);
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+  ctx.restore();
+  void y;
+}
+
+function drawDepot(ctx: CanvasRenderingContext2D, d: DepotView, toSx: (x: number) => number, toSy: (z: number) => number, s: number, y: number) {
+  const at = (dir?: string) => {
+    if (!dir) return undefined;
+    if (dir === 'up') return { ...d.dock, y: d.dock.y + 1 };
+    if (dir === 'down') return { ...d.dock, y: d.dock.y - 1 };
+    const h = HEADING_VECTORS[d.dockHeading];
+    return { x: d.dock.x + h.x, y: d.dock.y, z: d.dock.z + h.z };
+  };
+  ctx.save();
+  ctx.globalAlpha = d.dock.y === y ? 1 : 0.4;
+  ctx.strokeStyle = '#22d3ee';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(toSx(d.dock.x) + 1, toSy(d.dock.z) + 1, s - 2, s - 2);
+  const markers: [string | undefined, string, string][] = [
+    [d.unloadDir, '#d97706', 'C'],
+    [d.fuelDir, '#57534e', 'F'],
+  ];
+  for (const [dir, color, letter] of markers) {
+    const c = at(dir);
+    if (!c) continue;
+    ctx.globalAlpha = c.y === y ? 1 : 0.45;
+    ctx.fillStyle = color;
+    const inset = dir === 'front' ? 1 : s * 0.25; // chests above/below: smaller marker
+    ctx.fillRect(toSx(c.x) + inset, toSy(c.z) + inset, s - 2 * inset, s - 2 * inset);
+    if (s >= 12) {
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.min(12, s * 0.6)}px system-ui`;
+      ctx.textAlign = 'center';
+      ctx.fillText(letter, toSx(c.x + 0.5), toSy(c.z + 0.5) + 4);
+    }
+  }
+  if (s >= 10) {
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = '#67e8f9';
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(d.name, toSx(d.dock.x + 0.5), toSy(d.dock.z) - 3);
+  }
+  ctx.restore();
 }

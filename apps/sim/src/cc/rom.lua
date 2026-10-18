@@ -319,6 +319,12 @@ turtle = {
   inspectUp = inspector("inspectUp"),
   inspectDown = inspector("inspectDown"),
   refuel = function(n) return task("refuel", n) end,
+  drop = function(n) return task("drop", n) end,
+  dropUp = function(n) return task("dropUp", n) end,
+  dropDown = function(n) return task("dropDown", n) end,
+  suck = function(n) return task("suck", n) end,
+  suckUp = function(n) return task("suckUp", n) end,
+  suckDown = function(n) return task("suckDown", n) end,
   select = function(s)
     if type(s) ~= "number" or s < 1 or s > 16 then error("Slot out of range", 2) end
     __turtle_select(s) return true
@@ -345,7 +351,25 @@ gps = {
   end,
 }
 
+local SIDE_DIR = { front = "front", top = "up", bottom = "down" }
+
 peripheral = {
+  -- Adjacent inventories (front/top/bottom) appear as generic inventory peripherals.
+  wrap = function(side)
+    local dir = SIDE_DIR[side]
+    if not dir or not __inv_size(dir) then return nil end
+    return {
+      size = function() return __inv_size(dir) end,
+      list = function()
+        local out = {}
+        local arr = textutils.unserializeJSON(__inv_list(dir) or "[]")
+        if arr ~= textutils.empty_json_array then
+          for _, it in ipairs(arr) do out[it.slot] = { name = it.name, count = it.count } end
+        end
+        return out
+      end,
+    }
+  end,
   find = function(ty)
     if ty == "modem" and __has_modem() then return { isWireless = function() return true end } end
     return nil

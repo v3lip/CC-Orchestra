@@ -41,11 +41,22 @@
 - Commands are validated against the op whitelist; there is no remote Lua execution.
 - The backend binds `127.0.0.1` by default. Expose it on a LAN only deliberately, and pair that with a narrow CC: Tweaked http rule (see `minecraft-setup.md`).
 
-## Mining strategy definitions (planned for Milestones 3 and 5; fixed here to avoid ambiguity)
+## Jobs (Milestone 3)
+
+`apps/server/src/jobs/`: `manager.ts` (persistence, lifecycle, dock locks, hooks), `runner.ts` (execution), `nav.ts` (A*), `geometry.ts` (tunnel cells and stations).
+
+- **Lifecycle:** `ready → running → (pausing →) paused ⇄ running → completed`, or `cancelled`. Pausing waits for the current step. A **manual command, stop or cancel** on the turtle, a **disconnect**, or a **backend restart** pauses the job; nothing resumes on its own. Problems the operator must fix pause the job with an `error {code, message}` (e.g. `chest_full`, `chest_missing`, `protected`, `insufficient_fuel`, `no_route`, `pose_uncertain`, `agent_outdated`).
+- **Execution:** the runner issues the same atomic commands through the turtle's queue (executor `job:<id>`, not shown as UI batches) and reads the turtle's snapshots and the observed map after each step. It never assumes a step worked.
+- **Tunnel plan:** each slice (one step along the heading) is a work unit. The turtle stands at lane rows `1, 4, 7…` (clamped to the height) and digs the rows directly above and below, visiting columns in a serpentine. Odd slices run in reverse so slices connect. **Checkpoint** = the next slice index, plus the resume pose while on a depot trip. Re-running a slice is harmless: cells already observed as air are skipped, and digging air is a no-op.
+- **Navigation:** A* over observed cells: air 1, fluid 1.5, unknown 3, diggable solid 3. Only cells inside the job volume (minus exclusions, minus protected blocks) may be dug. Other turtles' last known cells (including offline turtles and uncertain candidates) and the depot chests are walls. Blocked moves re-plan (max 30). Falling blocks are re-dug (max 24 per cell). Unbreakable cells are skipped and counted.
+- **Depot trips:** triggered when unreserved free slots ≤ `minFreeSlots`, or when fuel < estimated way home (Manhattan × 1.25 + 10) + `fuelReserve`, after first burning carried fuel. A trip: save the resume pose → path to the dock → take the dock lock → face the dock heading → `inventoryInfo` → verified `drop` of every slot except keep slots and fuel in the fuel slot → top up from the fuel chest (`suck` + `refuel`; non-fuel goes back and pauses the job) → burn carried fuel only if still short → check there's enough to get back → release the lock → return to the resume pose.
+- **Dock lock:** one turtle at a time per depot, held until it leaves. Multi-turtle waiting positions and queues come in Milestone 4.
+
+## Mining strategy definitions (tunnel implemented; others planned for Milestone 5)
 
 | Strategy | Definition |
 |---|---|
-| **Tunnel** | Excavate a W×H cross-section along a straight line of length L from an origin and heading. |
+| **Tunnel** ✅ | Clear every cell `origin + d·forward + w·right + h·up` for `0≤d<L, 0≤w<W, 0≤h<H`. The origin is the bottom-left cell of the first slice when looking along the heading. |
 | **Branch / strip mine** | A main corridor (W×H, length L) along the heading. Every S blocks, side branches of length B leave both sides, perpendicular to it. Branch cross-section is configurable (default 1×2). Branch spacing S is measured between branch centrelines. |
 | **Grid mine** | Parallel 1×2 tunnels covering a rectangle at one target Y, spaced S apart (default 3, so every block is exposed to a tunnel face). |
 | **Quarry** | Remove every block in an axis-aligned box [x0..x1]×[y0..y1]×[z0..z1], top layer first. |

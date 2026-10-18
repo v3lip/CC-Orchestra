@@ -9,7 +9,7 @@
 --   * remember recent command ids so a re-delivered command never runs twice
 --   * when the connection drops, finish the current atomic op, then do nothing
 
-local AGENT_VERSION = "lua-0.2.0"
+local AGENT_VERSION = "lua-0.3.0"
 local PROTOCOL = 1
 local DIR = "/fleet"
 local CONFIG_FILE = DIR .. "/config.json"
@@ -115,6 +115,8 @@ local fatal = nil         -- set when the server refuses our credentials
 local clockOffset = 0     -- serverTime - localTime, from welcome
 local heartbeatSeconds = 5
 local scanOnMove = true
+-- Blocks never dug without `force` (substring match). Updated from the server on welcome.
+local protectedBlocks = { "chest", "barrel", "shulker_box", "computercraft:", "spawner", "_bed", "portal", "hopper", "furnace" }
 local serverName = nil
 local busy = nil          -- { id, op, args, cancelled, started }
 local activity = "idle"
@@ -395,11 +397,120 @@ local function doTurn(cmd)
   return okResult()
 end
 
+---------------------------------------------------------------- inventories
+
+local SIDE = { front = "front", up = "top", down = "bottom" }
+local DROP = { front = "drop", up = "dropUp", down = "dropDown" }
+local SUCK = { front = "suck", up = "suckUp", down = "suckDown" }
+
+-- The adjacent block as an inventory peripheral, or nil. Everything that moves items
+-- checks this first: turtle.drop() with no inventory throws the items into the world.
+local function inventoryAt(dir)
+  local p = peripheral.wrap(SIDE[dir])
+  if p and type(p.list) == "function" and type(p.size) == "function" then return p end
+  return nil
+end
+
+local function countIn(inv, name)
+  local ok, list = pcall(inv.list)
+  if not ok or type(list) ~= "table" then return nil end
+  local n = 0
+  for _, it in pairs(list) do
+    if type(it) == "table" and it.name == name then n = n + it.count end
+  end
+  return n
+end
+
+local function isProtected(name)
+  for _, pat in ipairs(protectedBlocks) do
+    if string.find(name, pat, 1, true) then return true end
+  end
+  return false
+end
+
+local function doDrop(cmd)
+  local a = cmd.args
+  if not inventoryAt(a.dir) then
+    return fail("no_inventory", "no inventory " .. a.dir .. "; refusing to drop items into the world")
+  end
+  local item = turtle.getItemDetail(a.slot)
+  if not item then return okResult({ dropped = 0 }) end
+  local inv = inventoryAt(a.dir)
+  local chestBefore = countIn(inv, item.name)
+  turtle.select(a.slot)
+  -- Check again right before dropping: the chest might have just been removed.
+  if not inventoryAt(a.dir) then
+    return fail("no_inventory", "inventory " .. a.dir .. " disappeared; nothing dropped")
+  end
+  local ok, reason
+  if a.count then ok, reason = turtle[DROP[a.dir]](a.count) else ok, reason = turtle[DROP[a.dir]]() end
+  local after = turtle.getItemDetail(a.slot)
+  local left = (after and after.name == item.name) and after.count or 0
+  local dropped = item.count - left
+  if dropped <= 0 then
+    return fail("inventory_full", tostring(reason or "the inventory accepted nothing"))
+  end
+  local chestAfter = countIn(inv, item.name)
+  local gain = nil
+  if chestBefore and chestAfter then gain = chestAfter - chestBefore end
+  local want = a.count or item.count
+  return okResult({
+    item = item.name,
+    dropped = dropped,
+    requested = want,
+    partial = dropped < want,
+    chestGain = gain,
+    verified = gain == dropped,
+  })
+end
+
+local function doSuck(cmd)
+  local a = cmd.args
+  if not inventoryAt(a.dir) then return fail("no_inventory", "no inventory " .. a.dir) end
+  local before = {}
+  for s = 1, 16 do before[s] = turtle.getItemCount(s) end
+  turtle.select(a.slot)
+  local ok, reason
+  if a.count then ok, reason = turtle[SUCK[a.dir]](a.count) else ok, reason = turtle[SUCK[a.dir]]() end
+  local taken, slots = 0, {}
+  for s = 1, 16 do
+    local d = turtle.getItemCount(s) - before[s]
+    if d > 0 then
+      taken = taken + d
+      local it = turtle.getItemDetail(s)
+      slots[#slots + 1] = { slot = s, name = it and it.name or "?", count = d }
+    end
+  end
+  return okResult({ taken = taken, slots = slots, reason = (not ok) and tostring(reason) or nil })
+end
+
+local function doInventoryInfo(cmd)
+  local inv = inventoryAt(cmd.args.dir)
+  if not inv then return fail("no_inventory", "no inventory " .. cmd.args.dir) end
+  local size = inv.size()
+  local list = inv.list()
+  local used, totals, names = 0, {}, {}
+  for _, it in pairs(list) do
+    used = used + 1
+    if not totals[it.name] then names[#names + 1] = it.name end
+    totals[it.name] = (totals[it.name] or 0) + it.count
+  end
+  local items = {}
+  for i = 1, math.min(#names, 32) do items[i] = { name = names[i], count = totals[names[i]] } end
+  local okI, data = turtle[INSPECT[cmd.args.dir]]()
+  return okResult({ block = okI and type(data) == "table" and data.name or nil, size = size, used = used, free = size - used, items = items })
+end
+
 local DIG = { dig = { "dig", "inspect", "front" }, digUp = { "digUp", "inspectUp", "up" }, digDown = { "digDown", "inspectDown", "down" } }
 
 local function doDig(cmd)
   local d = DIG[cmd.op]
   local had, before = turtle[d[2]]()
+  -- Never dig anything with an inventory (chests, other turtles...), even with force.
+  if inventoryAt(d[3]) then return fail("protected", "refusing to dig a block with an inventory") end
+  if had and type(before) == "table" and type(before.name) == "string" and not cmd.args.force and isProtected(before.name) then
+    return fail("protected", "protected block " .. before.name)
+  end
   local ok, reason = turtle[d[1]]()
   if not ok then return fail(classify(reason), reason) end
   scan({ d[3] }) -- gravel or sand may have fallen into the gap
@@ -469,6 +580,12 @@ local function execute(cmd)
   elseif op == "setLabel" then
     os.setComputerLabel(a.label)
     return okResult()
+  elseif op == "drop" then
+    return doDrop(cmd)
+  elseif op == "suck" then
+    return doSuck(cmd)
+  elseif op == "inventoryInfo" then
+    return doInventoryInfo(cmd)
   end
   return fail("invalid", "unsupported op " .. tostring(op))
 end
@@ -477,12 +594,20 @@ end
 
 local PHYSICAL = {
   forward = true, back = true, up = true, down = true, turnLeft = true, turnRight = true,
-  dig = true, digUp = true, digDown = true, refuel = true,
+  dig = true, digUp = true, digDown = true, refuel = true, drop = true, suck = true,
 }
+
+local DIRS = { front = true, up = true, down = true }
 
 local VALIDATE = {
   forward = true, back = true, up = true, down = true, turnLeft = true, turnRight = true,
-  dig = true, digUp = true, digDown = true, inspect = true, inspectUp = true, inspectDown = true,
+  inspect = true, inspectUp = true, inspectDown = true,
+  dig = function(a) return a.force == nil or type(a.force) == "boolean" end,
+  digUp = function(a) return a.force == nil or type(a.force) == "boolean" end,
+  digDown = function(a) return a.force == nil or type(a.force) == "boolean" end,
+  drop = function(a) return DIRS[a.dir] and isInt(a.slot, 1, 16) and (a.count == nil or isInt(a.count, 1, 64)) end,
+  suck = function(a) return DIRS[a.dir] and isInt(a.slot, 1, 16) and (a.count == nil or isInt(a.count, 1, 64)) end,
+  inventoryInfo = function(a) return DIRS[a.dir] == true end,
   select = function(a) return isInt(a.slot, 1, 16) end,
   refuel = function(a) return a.count == nil or isInt(a.count, 0, 64) end,
   calibrate = function(a) return isInt(a.x) and isInt(a.y) and isInt(a.z) and isInt(a.heading, 0, 3) end,
@@ -603,7 +728,16 @@ local function handleMessage(raw)
     serverName = msg.name
     if type(msg.serverTime) == "number" then clockOffset = msg.serverTime - now() end
     if type(msg.heartbeatMs) == "number" and msg.heartbeatMs >= 100 then heartbeatSeconds = msg.heartbeatMs / 1000 end
-    if type(msg.config) == "table" then scanOnMove = msg.config.scanOnMove ~= false end
+    if type(msg.config) == "table" then
+      scanOnMove = msg.config.scanOnMove ~= false
+      if type(msg.config.protectedBlocks) == "table" then
+        local list = {}
+        for _, v in ipairs(msg.config.protectedBlocks) do
+          if type(v) == "string" then list[#list + 1] = v end
+        end
+        protectedBlocks = list
+      end
+    end
     sendState()
     if mem.pose.position == "known" then
       wantBootScan = true

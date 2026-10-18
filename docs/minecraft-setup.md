@@ -67,6 +67,24 @@ The installer checks the http rule first (`http.checkURL`) and explains if it is
 
 `need_fuel = true` in your config: turtles hold up to 20,000 fuel (100,000 for advanced turtles). Coal and charcoal give 80 each. Movement costs 1 fuel per block; turning, digging and inspecting cost nothing.
 
+### Depot (for jobs)
+
+A depot is one **dock cell** where a turtle parks, plus chests next to it:
+
+```
+ side view, dock facing west            top view
+                                          N
+   [ air  ]   ← keep clear                ↑
+ [C][TURTLE]  ← dock cell            [C][D]→ tunnel
+   [ F ]      ← optional fuel chest
+```
+
+- **Unload chest** (`C`): in front of, above, or below the dock. A double chest is fine. Turtles only drop items when that block is an inventory. If it's missing, the job pauses with "No chest…" and nothing is spilled.
+- **Fuel chest** (`F`, optional): on a different side. Keep **only fuel** in it (coal, charcoal, coal blocks). It does not refill itself: you or a farm/hopper must keep it stocked. If something that isn't fuel turns up, the turtle puts it back and the job pauses.
+- **Fuel slot** (default slot 16): fuel the turtle carries. It's kept when unloading and only burned when the turtle would otherwise run short.
+- Set it up in the dashboard: park a turtle on the dock facing the way you want, select it → **Depots** → **New depot** → "Use … as the dock", then choose where the chests are.
+- Keep the dock and the route between the dock and the tunnel open (air). Jobs only dig inside their own tunnel volume, never on the way there.
+
 Fuel also matters for reliability: after a crash mid-move, the agent uses the fuel level to tell whether the move happened (see `docs/protocol.md`). With unlimited fuel that evidence does not exist, and an interrupted move needs manual reconciliation.
 
 ## 4. Chunk loading — read this

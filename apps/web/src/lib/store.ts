@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BatchView, EventView, GroupView, MapBlock, Targets, TurtleView, UiServerMsg } from '@ccfleet/protocol';
+import type { BatchView, DepotView, EventView, GroupView, JobView, MapBlock, Targets, TunnelParams, TurtleView, UiServerMsg } from '@ccfleet/protocol';
 import { api } from './api';
 
 export interface Toast {
@@ -26,6 +26,13 @@ interface FleetState {
   /** Bumped to ask the map to centre on `centerTarget`. */
   centerTarget?: { x: number; z: number; n: number };
   toasts: Toast[];
+  jobs: Record<string, JobView>;
+  depots: Record<string, DepotView>;
+  rightTab: 'turtle' | 'jobs' | 'depots';
+  /** Tunnel being drafted in the job form, previewed on the map. */
+  jobDraft?: TunnelParams;
+  setRightTab(t: FleetState['rightTab']): void;
+  setJobDraft(p: TunnelParams | undefined): void;
 
   select(ids: string[], mode?: 'replace' | 'add' | 'toggle'): void;
   focus(id: string | undefined, center?: boolean): void;
@@ -54,6 +61,11 @@ export const useFleet = create<FleetState>((set, get) => ({
   followY: true,
   mapVersion: 0,
   toasts: [],
+  jobs: {},
+  depots: {},
+  rightTab: 'turtle',
+  setRightTab: (rightTab) => set({ rightTab }),
+  setJobDraft: (jobDraft) => set({ jobDraft }),
 
   select(ids, mode = 'replace') {
     const cur = new Set(get().selection);
@@ -104,7 +116,15 @@ function apply(m: UiServerMsg) {
     case 'init': {
       const turtles = Object.fromEntries(m.turtles.map((t) => [t.id, t]));
       const selection = s.selection.filter((id) => turtles[id]);
-      useFleet.setState({ turtles, groups: m.groups, batches: m.batches, events: m.events, selection });
+      useFleet.setState({
+        turtles,
+        groups: m.groups,
+        batches: m.batches,
+        events: m.events,
+        selection,
+        jobs: Object.fromEntries((m.jobs ?? []).map((j) => [j.id, j])),
+        depots: Object.fromEntries((m.depots ?? []).map((d) => [d.id, d])),
+      });
       // Default the map to where the turtles are.
       if (!Object.keys(s.turtles).length && m.turtles.length) {
         const first = m.turtles.find((t) => t.connection !== 'offline' && t.state?.pose.pos) ?? m.turtles.find((t) => t.state?.pose.pos);
@@ -139,6 +159,22 @@ function apply(m: UiServerMsg) {
     case 'event':
       useFleet.setState({ events: [m.event, ...s.events].slice(0, 500) });
       break;
+    case 'job':
+      useFleet.setState({ jobs: { ...s.jobs, [m.job.id]: m.job } });
+      break;
+    case 'job_removed': {
+      const { [m.id]: _j, ...jobs } = s.jobs;
+      useFleet.setState({ jobs });
+      break;
+    }
+    case 'depot':
+      useFleet.setState({ depots: { ...s.depots, [m.depot.id]: m.depot } });
+      break;
+    case 'depot_removed': {
+      const { [m.id]: _d, ...depots } = s.depots;
+      useFleet.setState({ depots });
+      break;
+    }
     case 'map':
       if (m.world === s.world && m.dimension === s.dimension) {
         mapCache.put(m.blocks);

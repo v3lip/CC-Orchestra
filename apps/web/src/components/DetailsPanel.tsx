@@ -114,7 +114,19 @@ export function DetailsPanel() {
       <Section title="Activity">
         <Row k="Current command" v={st?.currentCommandId ? <span className="num">{st.currentCommandId}</span> : 'none'} />
         <Row k="Queued" v={<span className="num">{t.queueLength}</span>} />
-        <Row k="Job" v={<span className="text-slate-500">none (jobs: Milestone 3)</span>} />
+        <Row
+          k="Job"
+          v={
+            t.job ? (
+              <button className="text-cyan-300 hover:underline" onClick={() => useFleet.getState().setRightTab('jobs')}>
+                {t.job.name} · {t.job.status}
+                {t.job.status === 'running' ? ` · ${t.job.phase}` : ''}
+              </button>
+            ) : (
+              'none'
+            )
+          }
+        />
         {st?.lastError && (
           <div className="mt-1 rounded border border-red-900/60 bg-red-950/30 p-1.5 text-red-200">
             Last error <span className="num">[{st.lastError.code}]</span> {st.lastError.message}

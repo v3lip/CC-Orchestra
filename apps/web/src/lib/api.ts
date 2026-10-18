@@ -1,4 +1,4 @@
-import type { BatchView, GroupView, Targets, TurtleView, MapBlock } from '@ccfleet/protocol';
+import type { BatchView, DepotInput, DepotView, GroupView, JobEstimate, JobInput, JobView, MapBlock, Targets, TurtleView } from '@ccfleet/protocol';
 
 export class HttpError extends Error {
   constructor(
@@ -47,6 +47,15 @@ export const api = {
   setMembers: (id: string, memberIds: string[]) => req<GroupView>('PUT', `/api/groups/${id}/members`, { memberIds }),
   renameGroup: (id: string, name: string) => req<GroupView>('PATCH', `/api/groups/${id}`, { name }),
   deleteGroup: (id: string) => req<{ ok: true }>('DELETE', `/api/groups/${id}`),
+
+  saveDepot: (d: Omit<DepotInput, 'waiting'> & { waiting?: DepotInput['waiting'] }, id?: string) => req<DepotView>(id ? 'PUT' : 'POST', id ? `/api/depots/${id}` : '/api/depots', d),
+  deleteDepot: (id: string) => req<{ ok: true }>('DELETE', `/api/depots/${id}`),
+  estimateJob: (j: JobInput) => req<{ estimate: JobEstimate; warnings: string[] }>('POST', '/api/jobs/estimate', j),
+  createJob: (j: JobInput) => req<JobView>('POST', '/api/jobs', j),
+  startJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/start`, {}),
+  pauseJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/pause`, {}),
+  cancelJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/cancel`, {}),
+  deleteJob: (id: string) => req<{ ok: true }>('DELETE', `/api/jobs/${id}`),
 
   mapBlocks: (q: { world: string; dimension: string; x0: number; x1: number; z0: number; z1: number; y0: number; y1: number }) =>
     req<{ blocks: MapBlock[]; truncated: boolean }>('GET', `/api/map/blocks?${new URLSearchParams(Object.entries(q).map(([k, v]) => [k, String(v)]))}`),

@@ -4,11 +4,14 @@ import { ApiError, type Fleet, type TurtleConn } from './fleet';
 import { newId, now } from './util';
 
 const HELLO_TIMEOUT_MS = 10_000;
-/** Generous for a turtle (a few messages per atomic op), but bounds a misbehaving client. */
-const MAX_MESSAGES_PER_SECOND = 60;
 
 /** Drive one turtle WebSocket: enrollment, authentication and message dispatch. */
-export function handleTurtleSocket(ws: WebSocket, fleet: Fleet, remote: string): void {
+/**
+ * A turtle sends ~4 messages per command (ack, snapshot, observations, result), and
+ * one-tick ops like inspect or drop can run ~20 commands a second. The limit is far
+ * above that but still bounds a misbehaving client.
+ */
+export function handleTurtleSocket(ws: WebSocket, fleet: Fleet, remote: string, maxMessagesPerSecond = 300): void {
   let turtleId: string | undefined;
   let windowStart = now();
   let windowCount = 0;
@@ -37,7 +40,7 @@ export function handleTurtleSocket(ws: WebSocket, fleet: Fleet, remote: string):
       windowStart = t;
       windowCount = 0;
     }
-    if (++windowCount > MAX_MESSAGES_PER_SECOND) {
+    if (++windowCount > maxMessagesPerSecond) {
       fleet.log('error', `Closing turtle connection from ${remote}: message rate limit exceeded`, turtleId);
       ws.close(4008, 'rate limit');
       return;

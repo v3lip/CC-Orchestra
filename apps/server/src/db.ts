@@ -109,6 +109,24 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (world, dimension, x, z, y)
   ) WITHOUT ROWID;
   `,
+  // 2: depots and jobs (documents as JSON; queried by id only)
+  `
+  CREATE TABLE depots (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE jobs (
+    id TEXT PRIMARY KEY,
+    data_json TEXT NOT NULL,
+    checkpoint_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    turtle_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function openDb(file: string): Db {

@@ -16,7 +16,9 @@ import {
   type Connection,
   type DisplayStatus,
   type EventView,
+  type DepotView,
   type GroupView,
+  type JobView,
   type MapBlock,
   type Op,
   type RecentResult,
@@ -26,7 +28,9 @@ import {
   type TurtleState,
   type TurtleView,
   type UiServerMsg,
+  type Vec3,
   COMMAND_RESULT_TIMEOUT_MS,
+  DEFAULT_PROTECTED_BLOCKS,
   DEFAULT_COMMAND_TTL_MS,
   FLUID_BLOCKS,
   HEARTBEAT_INTERVAL_MS,
@@ -97,6 +101,24 @@ interface TurtleRec {
   saveTimer?: NodeJS.Timeout;
 }
 
+export interface StepResult {
+  status: CommandStatus;
+  code?: string;
+  reason?: string;
+  data?: Record<string, unknown>;
+}
+
+/** Hooks the job manager registers to keep jobs and manual control from overlapping. */
+export interface FleetHooks {
+  /** Manual commands, stops or cancels were issued to these turtles. */
+  operatorAction?(turtleIds: string[], kind: 'command' | 'stop' | 'cancel'): void;
+  disconnected?(turtleId: string): void;
+  removed?(turtleId: string): void;
+  /** Job summary for a turtle's view. */
+  jobOf?(turtleId: string): TurtleView['job'];
+  extraInit?(): { jobs: JobView[]; depots: DepotView[] };
+}
+
 export interface FleetOptions {
   staleMs?: number;
   offlineMs?: number;
@@ -129,6 +151,8 @@ export class Fleet {
   private mapBuffer = new Map<string, MapBlock[]>();
   private timers: NodeJS.Timeout[] = [];
   private opts: Required<FleetOptions>;
+  private stepWaiters = new Map<string, (r: StepResult) => void>();
+  hooks: FleetHooks = {};
 
   constructor(
     private db: Db,
@@ -166,7 +190,7 @@ export class Fleet {
     return () => this.listeners.delete(fn);
   }
 
-  private broadcast(m: UiServerMsg): void {
+  broadcast(m: UiServerMsg): void {
     for (const fn of this.listeners) fn(m);
   }
 
@@ -187,6 +211,11 @@ export class Fleet {
     this.dirtyTurtles.add(rec.id);
   }
 
+  /** Re-broadcast a turtle's view (e.g. after its job changed). */
+  touchTurtle(id: string): void {
+    this.dirtyTurtles.add(id);
+  }
+
   initMessage(): UiServerMsg {
     return {
       type: 'init',
@@ -194,6 +223,7 @@ export class Fleet {
       groups: [...this.groups.values()],
       batches: [...this.batches.values()].sort((a, b) => b.createdAt - a.createdAt),
       events: this.recentEvents(200),
+      ...(this.hooks.extraInit?.() ?? { jobs: [], depots: [] }),
     };
   }
 
@@ -294,7 +324,11 @@ export class Fleet {
 
   view(rec: TurtleRec): TurtleView {
     const connection = this.connection(rec);
-    const status: DisplayStatus = connection === 'online' ? (rec.state?.activity ?? 'idle') : connection;
+    const job = this.hooks.jobOf?.(rec.id);
+    let status: DisplayStatus = connection === 'online' ? (rec.state?.activity ?? 'idle') : connection;
+    if (connection === 'online' && !rec.state?.hold && job?.status === 'running') {
+      status = job.phase === 'returning' ? 'returning' : job.phase === 'unloading' || job.phase === 'refueling' ? 'unloading' : 'working';
+    }
     return {
       id: rec.id,
       name: rec.name,
@@ -309,6 +343,7 @@ export class Fleet {
       state: rec.state,
       queueLength: rec.queue.length + (rec.inflight ? 1 : 0),
       pendingStop: !!rec.pendingStop,
+      job,
       lastSeen: rec.lastSeen,
       groupIds: [...this.groups.values()].filter((g) => g.memberIds.includes(rec.id)).map((g) => g.id),
       createdAt: rec.createdAt,
@@ -423,7 +458,7 @@ export class Fleet {
       name: rec.name,
       serverTime: t,
       heartbeatMs: this.opts.heartbeatMs,
-      config: { scanOnMove: true },
+      config: { scanOnMove: true, protectedBlocks: DEFAULT_PROTECTED_BLOCKS },
     });
     this.reconcileRecent(rec, hello.recent);
     this.log('info', `${rec.name} connected${rebooted ? ' (rebooted)' : ''}`, rec.id);
@@ -505,6 +540,7 @@ export class Fleet {
     this.saveState(rec);
     this.log('warn', `${rec.name} disconnected (${why}); last known position is still treated as occupied`, rec.id);
     this.touch(rec);
+    this.hooks.disconnected?.(rec.id);
   }
 
   private tick(): void {
@@ -669,6 +705,11 @@ export class Fleet {
   private setCommandStatus(cmd: CommandRec, patch: { status: CommandStatus; code?: string; reason?: string; data?: Record<string, unknown> }): void {
     Object.assign(cmd, patch);
     if (TERMINAL_STATUSES.has(cmd.status)) {
+      const waiter = this.stepWaiters.get(cmd.id);
+      if (waiter) {
+        this.stepWaiters.delete(cmd.id);
+        waiter({ status: cmd.status, code: cmd.code, reason: cmd.reason, data: cmd.data });
+      }
       this.recentCommands.set(cmd.id, cmd);
       if (this.recentCommands.size > MAX_RECENT_COMMANDS) this.recentCommands.delete(this.recentCommands.keys().next().value!);
     }
@@ -688,6 +729,8 @@ export class Fleet {
     const ids = this.resolveTargets(targets);
     if (ids.length === 0) throw new ApiError(400, 'no turtles targeted');
     if ((op === 'calibrate' || op === 'setLabel') && ids.length > 1) throw new ApiError(400, `${op} applies to exactly one turtle`);
+    // Manual control takes over: any job on these turtles pauses after its current step.
+    this.hooks.operatorAction?.(ids, 'command');
     const t = now();
     const ttl = Math.min(Math.max(opts.ttlMs ?? DEFAULT_COMMAND_TTL_MS, 1000), 10 * 60_000);
     const executor = opts.executor ?? 'manual';
@@ -767,6 +810,52 @@ export class Fleet {
     rec.conn.send({ v: PROTOCOL_VERSION, type: 'cmd', id: newId('m'), ts: now(), commandId: cmd.id, op: cmd.op, args: cmd.args, expiresAt: cmd.expiresAt, executor: cmd.executor });
   }
 
+  /**
+   * Run one command for a job and wait for its outcome. Not shown as a UI batch.
+   * Resolves (never rejects) with the terminal status.
+   */
+  runStep(turtleId: string, op: Op, args: Record<string, unknown>, executor: string): Promise<StepResult> {
+    const rec = this.turtles.get(turtleId);
+    if (!rec) return Promise.resolve({ status: 'rejected', code: 'invalid', reason: 'unknown turtle' });
+    if (!rec.conn) return Promise.resolve({ status: 'undeliverable', reason: 'turtle offline' });
+    if (PHYSICAL_OPS.has(op) && rec.state?.hold) return Promise.resolve({ status: 'rejected', code: 'held', reason: 'turtle is held' });
+    const parsed = parseOpArgs(op, args);
+    if (!parsed.ok) return Promise.resolve({ status: 'rejected', code: 'invalid', reason: parsed.error });
+    const t = now();
+    const cmd: CommandRec = { id: newId('c'), batchId: '', turtleId, op, args: parsed.args, executor, status: 'queued', createdAt: t, expiresAt: t + DEFAULT_COMMAND_TTL_MS };
+    this.db
+      .prepare('INSERT INTO commands (id, batch_id, turtle_id, op, args_json, executor, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(cmd.id, null, turtleId, op, JSON.stringify(cmd.args), executor, 'queued', t, t);
+    const p = new Promise<StepResult>((resolve) => this.stepWaiters.set(cmd.id, resolve));
+    rec.queue.push(cmd);
+    this.pump(rec);
+    return p;
+  }
+
+  turtleState(id: string): { state?: TurtleState; online: boolean; world: string; dimension: string; name: string } | undefined {
+    const rec = this.turtles.get(id);
+    return rec && { state: rec.state, online: !!rec.conn, world: rec.world, dimension: rec.dimension, name: rec.name };
+  }
+
+  /** Last known positions of all turtles in a world (offline ones included: they may still be there). */
+  turtlePositions(world: string, dimension: string, exceptId?: string): Vec3[] {
+    const out: Vec3[] = [];
+    for (const r of this.turtles.values()) {
+      if (r.id === exceptId || r.world !== world || r.dimension !== dimension) continue;
+      const pose = r.state?.pose;
+      if (pose?.pos) out.push(pose.pos);
+      for (const c of pose?.candidates ?? []) out.push(c);
+    }
+    return out;
+  }
+
+  mapCell(world: string, dimension: string, p: Vec3): MapBlock | undefined {
+    const r = this.db
+      .prepare('SELECT block, cell, observed_at, source FROM map_blocks WHERE world=? AND dimension=? AND x=? AND z=? AND y=?')
+      .get(world, dimension, p.x, p.z, p.y) as Record<string, unknown> | undefined;
+    return r && { ...p, block: (r.block as string) ?? null, cell: r.cell as MapBlock['cell'], observedAt: r.observed_at as number, source: (r.source as string) ?? undefined };
+  }
+
   // ------------------------------------------------------------ stop / resume / cancel
 
   private sendStop(rec: TurtleRec, reason: StopReason, batchId: string | undefined): string {
@@ -784,6 +873,7 @@ export class Fleet {
     const t = now();
     const items: BatchItem[] = ids.map((turtleId) => ({ turtleId, status: 'sent', updatedAt: t }));
     const label = reason === 'estop' ? 'EMERGENCY STOP' : 'Pause';
+    this.hooks.operatorAction?.(ids, 'stop');
     const batch = this.createBatch('stop', label, items, reason);
     for (const item of items) {
       const rec = this.turtles.get(item.turtleId)!;
@@ -835,6 +925,7 @@ export class Fleet {
     if (ids.length === 0) throw new ApiError(400, 'no turtles targeted');
     const t = now();
     const items: BatchItem[] = ids.map((turtleId) => ({ turtleId, status: 'cancelled', updatedAt: t }));
+    this.hooks.operatorAction?.(ids, 'cancel');
     const batch = this.createBatch('cancel', 'Cancel commands', items);
     for (const item of items) {
       const rec = this.turtles.get(item.turtleId)!;
@@ -874,6 +965,7 @@ export class Fleet {
     this.db.prepare('DELETE FROM group_members WHERE turtle_id=?').run(id);
     for (const g of this.groups.values()) g.memberIds = g.memberIds.filter((m) => m !== id);
     this.broadcast({ type: 'turtle_removed', id });
+    this.hooks.removed?.(id);
     this.broadcast({ type: 'groups', groups: this.listGroups() });
     this.log('warn', `${rec.name} removed; its credentials are revoked`);
   }

@@ -28,11 +28,11 @@ export async function startServer(opts: { dbFile?: string; port?: number } = {})
   const config = testConfig(opts.dbFile);
   config.turtleDir = TURTLE_DIR;
   const db = openDb(config.dbFile);
-  const { app, fleet } = await buildApp(config, { db, fleet: FAST });
+  const { app, fleet, jobs } = await buildApp(config, { db, fleet: FAST, turtleRateLimit: 100_000 }); // simulated ops are ~100x faster than real ones
   await app.listen({ host: '127.0.0.1', port: opts.port ?? 0 });
   const port = (app.server.address() as AddressInfo).port;
   config.publicUrl = `http://127.0.0.1:${port}`; // read per request by the installer route
-  return { app, fleet, port, baseUrl: config.publicUrl, wsUrl: `ws://127.0.0.1:${port}/ws/turtle`, close: () => app.close() };
+  return { app, fleet, jobs, port, baseUrl: config.publicUrl, wsUrl: `ws://127.0.0.1:${port}/ws/turtle`, close: () => app.close() };
 }
 
 export function knownPose(x: number, y: number, z: number, heading: Heading): Pose {
@@ -46,7 +46,7 @@ export async function spawnTurtle(
   server: Awaited<ReturnType<typeof startServer>>,
   world: SimWorld,
   at: { x: number; y: number; z: number; heading?: Heading },
-  extra: { fuel?: number | 'unlimited'; store?: MemoryStore; opMs?: number; calibrated?: boolean } = {},
+  extra: { fuel?: number | 'unlimited'; store?: MemoryStore; opMs?: number; calibrated?: boolean; slots?: TurtleBody['slots'] } = {},
 ) {
   const heading = at.heading ?? 0;
   const body: TurtleBody = {
@@ -54,7 +54,7 @@ export async function spawnTurtle(
     heading,
     fuel: extra.fuel ?? 100,
     fuelLimit: extra.fuel === 'unlimited' ? 'unlimited' : 20000,
-    slots: Array(16).fill(null),
+    slots: extra.slots ?? Array(16).fill(null),
     selected: 1,
   };
   const { code } = server.fleet.createEnrollment({ world: 'sim', simulated: true });
@@ -136,4 +136,9 @@ export async function spawnLuaTurtle(
     () => `lua turtle #${computerId} online (status ${t.status} ${t.lastError ?? ''}; output: ${t.output.slice(-5).join(' | ')})`,
   );
   return Object.assign(t, { turtleId: view.id });
+}
+
+export function fill(world: SimWorld, min: { x: number; y: number; z: number }, max: { x: number; y: number; z: number }, name: string | null) {
+  for (let x = min.x; x <= max.x; x++)
+    for (let y = min.y; y <= max.y; y++) for (let z = min.z; z <= max.z; z++) world.set(x, y, z, name ? { name } : null);
 }

@@ -111,6 +111,11 @@ export type TurtleState = z.infer<typeof TurtleState>;
 // ---------------------------------------------------------------- operations
 
 const NoArgs = z.object({}).strict();
+/** Which neighbouring block an inventory op acts on. */
+export const Dir = z.enum(['front', 'up', 'down']);
+export type Dir = z.infer<typeof Dir>;
+/** `force` skips the name-based protection list, but never allows digging an inventory. */
+const DigArgs = z.object({ force: z.boolean().optional() }).strict();
 
 /**
  * The complete set of operations a turtle will run. There is deliberately no
@@ -123,9 +128,9 @@ export const OpArgs = {
   down: NoArgs,
   turnLeft: NoArgs,
   turnRight: NoArgs,
-  dig: NoArgs,
-  digUp: NoArgs,
-  digDown: NoArgs,
+  dig: DigArgs,
+  digUp: DigArgs,
+  digDown: DigArgs,
   inspect: NoArgs,
   inspectUp: NoArgs,
   inspectDown: NoArgs,
@@ -136,6 +141,15 @@ export const OpArgs = {
   /** gps.locate(); fixes position only, never heading. */
   gpsLocate: z.object({ timeout: z.number().min(0.5).max(5).optional() }).strict(),
   setLabel: z.object({ label: z.string().min(1).max(32) }).strict(),
+  /**
+   * Verified drop of one slot into an adjacent INVENTORY. The agent refuses when the
+   * side is not an inventory peripheral, so items are never thrown into the world.
+   */
+  drop: z.object({ dir: Dir, slot: int().min(1).max(16), count: int().min(1).max(64).optional() }).strict(),
+  /** Take items from an adjacent inventory (never from the world) into `slot` and onwards. */
+  suck: z.object({ dir: Dir, slot: int().min(1).max(16), count: int().min(1).max(64).optional() }).strict(),
+  /** Describe an adjacent inventory: size, used slots, item totals. */
+  inventoryInfo: z.object({ dir: Dir }).strict(),
 } as const;
 export type Op = keyof typeof OpArgs;
 export const OPS = Object.keys(OpArgs) as Op[];
@@ -145,7 +159,7 @@ export const MOVE_OPS: ReadonlySet<Op> = new Set(['forward', 'back', 'up', 'down
 export const TURN_OPS: ReadonlySet<Op> = new Set(['turnLeft', 'turnRight']);
 export const DIG_OPS: ReadonlySet<Op> = new Set(['dig', 'digUp', 'digDown']);
 /** Operations refused while a turtle is held (paused or emergency-stopped). */
-export const PHYSICAL_OPS: ReadonlySet<Op> = new Set([...MOVE_OPS, ...TURN_OPS, ...DIG_OPS, 'refuel']);
+export const PHYSICAL_OPS: ReadonlySet<Op> = new Set([...MOVE_OPS, ...TURN_OPS, ...DIG_OPS, 'refuel', 'drop', 'suck']);
 
 /** Normalised failure codes. Agents also pass CC's raw reason string. */
 export const ErrorCode = z.enum([
@@ -160,6 +174,9 @@ export const ErrorCode = z.enum([
   'invalid',
   'no_gps',
   'pose_unknown',
+  'no_inventory',
+  'inventory_full',
+  'unverified',
   'failed',
   'internal',
 ]);
@@ -306,7 +323,7 @@ export interface WelcomeMsg extends Env {
   name: string;
   serverTime: number;
   heartbeatMs: number;
-  config: { scanOnMove: boolean };
+  config: { scanOnMove: boolean; protectedBlocks: string[] };
 }
 export interface EnrolledMsg extends Env {
   type: 'enrolled';
@@ -409,6 +426,8 @@ export interface TurtleView {
   queueLength: number;
   /** Stop requested while offline; delivered on reconnect. */
   pendingStop: boolean;
+  /** The job controlling this turtle, if any. */
+  job?: { id: string; name: string; status: JobStatus; phase: JobPhase };
   lastSeen?: number;
   groupIds: string[];
   createdAt: number;
@@ -448,13 +467,130 @@ export interface Targets {
 }
 
 export type UiServerMsg =
-  | { type: 'init'; turtles: TurtleView[]; groups: GroupView[]; batches: BatchView[]; events: EventView[] }
+  | { type: 'init'; turtles: TurtleView[]; groups: GroupView[]; batches: BatchView[]; events: EventView[]; jobs: JobView[]; depots: DepotView[] }
   | { type: 'turtle'; turtle: TurtleView }
   | { type: 'turtle_removed'; id: string }
   | { type: 'groups'; groups: GroupView[] }
   | { type: 'batch'; batch: BatchView }
   | { type: 'event'; event: EventView }
-  | { type: 'map'; world: string; dimension: string; blocks: MapBlock[] };
+  | { type: 'map'; world: string; dimension: string; blocks: MapBlock[] }
+  | { type: 'job'; job: JobView }
+  | { type: 'job_removed'; id: string }
+  | { type: 'depot'; depot: DepotView }
+  | { type: 'depot_removed'; id: string };
+
+// ---------------------------------------------------------------- depots & jobs
+
+/** Blocks the agent refuses to dig unless `force` is set (substring match on the block id). */
+export const DEFAULT_PROTECTED_BLOCKS = ['chest', 'barrel', 'shulker_box', 'computercraft:', 'spawner', '_bed', 'portal', 'hopper', 'furnace'];
+
+/** Items accepted as turtle fuel when deciding what to keep in the fuel slot. */
+export const FUEL_ITEMS = new Set(['minecraft:coal', 'minecraft:charcoal', 'minecraft:coal_block', 'minecraft:blaze_rod', 'minecraft:lava_bucket']);
+
+export const DepotInput = z.object({
+  name: z.string().min(1).max(40),
+  world: z.string().min(1).max(40),
+  dimension: z.string().min(1).max(80),
+  /** The cell the turtle stands in to use the depot. */
+  dock: Vec3,
+  /** The direction the turtle faces at the dock (matters when a chest is in front). */
+  dockHeading: Heading,
+  /** Where the unload chest is, relative to the docked turtle. */
+  unloadDir: Dir,
+  /** Optional fuel chest, relative to the docked turtle. Must differ from unloadDir. */
+  fuelDir: Dir.optional(),
+  /** Cells where turtles wait for the dock (used by multi-turtle queues, Milestone 4). */
+  waiting: z.array(Vec3).max(16).default([]),
+});
+export type DepotInput = z.infer<typeof DepotInput>;
+export interface DepotView extends DepotInput {
+  id: string;
+  /** Turtle currently using the dock (also kept while that turtle is offline). */
+  lockedBy?: string;
+  createdAt: number;
+}
+
+export const Box = z.object({ min: Vec3, max: Vec3 });
+export type Box = z.infer<typeof Box>;
+
+/**
+ * Tunnel: clears every cell origin + d*forward + w*right + h*up for
+ * 0<=d<length, 0<=w<width, 0<=h<height. The origin is the bottom-left cell of the
+ * first slice when looking along `heading`.
+ */
+export const TunnelParams = z.object({
+  origin: Vec3,
+  heading: Heading,
+  width: int().min(1).max(16),
+  height: int().min(1).max(16),
+  length: int().min(1).max(1024),
+});
+export type TunnelParams = z.infer<typeof TunnelParams>;
+
+export const JobPolicy = z.object({
+  /** Return to unload when this many (or fewer) unreserved slots are free. */
+  minFreeSlots: int().min(0).max(14).default(1),
+  /** Slot kept for fuel. Only fuel items are kept there; anything else is unloaded. 0 = none. */
+  fuelSlot: int().min(0).max(16).default(16),
+  /** Slots never unloaded (e.g. torches for later strategies). */
+  keepSlots: z.array(int().min(1).max(16)).max(8).default([]),
+  /** Extra fuel kept beyond the estimated cost of getting back to the dock. */
+  fuelReserve: int().min(0).max(10000).default(100),
+  /** Refuel up to this level at the depot (capped by the turtle's fuel limit). */
+  refuelTarget: int().min(0).max(100000).default(2000),
+  returnHomeWhenDone: z.boolean().default(true),
+});
+export type JobPolicy = z.infer<typeof JobPolicy>;
+
+export const JobInput = z.object({
+  name: z.string().min(1).max(60),
+  strategy: z.literal('tunnel'),
+  params: TunnelParams,
+  depotId: z.string(),
+  turtleId: z.string(),
+  policy: JobPolicy.partial().default({}),
+  /** Boxes that must never be dug, even inside the job volume. */
+  exclusions: z.array(Box).max(32).default([]),
+});
+export type JobInput = z.input<typeof JobInput>;
+
+export type JobStatus = 'ready' | 'running' | 'pausing' | 'paused' | 'completed' | 'cancelled';
+export type JobPhase = 'idle' | 'traveling' | 'mining' | 'returning' | 'unloading' | 'refueling' | 'done';
+
+export interface JobEstimate {
+  moves: number;
+  fuel: number;
+  seconds: number;
+  trips: number;
+  cells: number;
+  /** Always shown with the numbers: these are estimates, not plans. */
+  note: string;
+}
+
+export interface JobView {
+  id: string;
+  name: string;
+  strategy: 'tunnel';
+  params: TunnelParams;
+  policy: JobPolicy;
+  exclusions: Box[];
+  world: string;
+  dimension: string;
+  depotId: string;
+  turtleId: string;
+  status: JobStatus;
+  phase: JobPhase;
+  pauseReason?: string;
+  error?: { code: string; message: string; at: number };
+  progress: { unitsDone: number; unitsTotal: number; cellsCleared: number; cellsSkipped: number; trips: number; itemsUnloaded: number };
+  estimate: JobEstimate;
+  /** Next cells on the turtle's planned route (for the map). */
+  route?: Vec3[];
+  createdAt: number;
+  updatedAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+}
 
 // ---------------------------------------------------------------- helpers
 
