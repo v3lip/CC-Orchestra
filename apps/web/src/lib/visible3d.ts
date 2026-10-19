@@ -46,23 +46,6 @@ export function cellsIn(layer: Layer, box: Box3): MapBlock[] {
   return out;
 }
 
-/** Known cells inside a (large) box, grouped by chunk column "cx,cz", in one pass over the layers. */
-export function cellsByChunk(layer: Layer, box: Box3): Map<string, MapBlock[]> {
-  const out = new Map<string, MapBlock[]>();
-  for (let y = box.y0; y <= box.y1; y++) {
-    const l = layer(y);
-    if (!l) continue;
-    for (const b of l.values()) {
-      if (b.x < box.x0 || b.x > box.x1 || b.z < box.z0 || b.z > box.z1) continue;
-      const k = `${Math.floor(b.x / 16)},${Math.floor(b.z / 16)}`;
-      const list = out.get(k);
-      if (list) list.push(b);
-      else out.set(k, [b]);
-    }
-  }
-  return out;
-}
-
 /**
  * Sort cells into what is drawn. Neighbours are looked up within `bounds` (the whole
  * view), so a chunk's edge blocks are hidden by blocks in the next chunk, but the
@@ -89,4 +72,32 @@ export function classify(cells: MapBlock[], layer: Layer, bounds: Box3): Visible
     solids.push(b);
   }
   return { solids, ores, fluids };
+}
+
+/**
+ * Far-away detail level: per column only the highest known solid block (within the
+ * box), any fluid above it, and every ore. At most one block per column plus ores,
+ * instead of every exposed block.
+ */
+export function surface(cells: MapBlock[]): Visible {
+  const top = new Map<string, MapBlock>();
+  const fluidTop = new Map<string, MapBlock>();
+  const ores: MapBlock[] = [];
+  for (const b of cells) {
+    if (b.cell === 'empty') continue;
+    const k = `${b.x},${b.z}`;
+    if (b.cell === 'fluid') {
+      const f = fluidTop.get(k);
+      if (!f || b.y > f.y) fluidTop.set(k, b);
+      continue;
+    }
+    if (isOreBlock(b.block)) {
+      ores.push(b);
+      continue;
+    }
+    const t = top.get(k);
+    if (!t || b.y > t.y) top.set(k, b);
+  }
+  const fluids = [...fluidTop.entries()].filter(([k, f]) => (top.get(k)?.y ?? -Infinity) < f.y).map(([, f]) => f);
+  return { solids: [...top.values()], ores, fluids };
 }

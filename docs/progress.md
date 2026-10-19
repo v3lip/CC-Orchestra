@@ -1,5 +1,13 @@
 # Progress notes
 
+## Milestone 6, B2 — level of detail in the 3D view (2026-10-20)
+
+- Chunks within 3 chunks of the centre are drawn in full; farther chunks show each column's top block, water on top, and every ore. At most 200 000 blocks are drawn: past that, near chunks fall back to their surface (nearest keep full detail) and the toolbar says "detail reduced in N chunks".
+- Full rebuilds (centre, Y cut, x-ray) run nearest chunk first, ~10 ms per frame, keeping the old meshes until each chunk is replaced: the page stays responsive and the toolbar shows "loading N chunks".
+- Fully mapped 256×256×40 (2.6 M cells): near chunks on screen after 0.8 s, everything after 1.8 s spread over frames (was 2.5 s frozen), 104 000 blocks drawn (was 170 000). With the real map a full rebuild is ~15 ms.
+- Tests: surface-only classification (top block, ores at any depth, water on top), nearest-first order and the full-detail radius. Browser check on a sim instance: renders, updates live, no console errors.
+
+
 ## Milestone 6, B1 — 3D view in chunks (2026-10-19)
 
 - The 3D view is built from one mesh group per 16×16 chunk column. The map cache keeps a version per chunk; a turtle's map update rebuilds only the chunks it touched (and the neighbour across an edge), not the whole view. The area grew from 80×80 to 256×256.

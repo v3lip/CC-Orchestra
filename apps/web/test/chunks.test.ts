@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MapBlock } from '@ccfleet/protocol';
-import { chunkWork, chunksTouched, tiles } from '../src/lib/chunks';
+import { chunkOrder, chunkWork, chunksTouched, lodFull, tiles } from '../src/lib/chunks';
 import { mapCache } from '../src/lib/store';
 
 const stone = (x: number, y: number, z: number): MapBlock => ({ x, y, z, block: 'minecraft:stone', cell: 'solid', observedAt: 0 });
@@ -46,5 +46,18 @@ describe('chunk bookkeeping', () => {
     const built = new Map([['0,0', mapCache.version('0,0')]]);
     mapCache.reset();
     expect(chunkWork(['0,0'], built, (k) => mapCache.version(k)).rebuild).toEqual(['0,0']);
+  });
+});
+
+describe('level of detail', () => {
+  it('orders chunks nearest first and gives full detail within the radius', () => {
+    const order = chunkOrder({ x0: -128, x1: 127, z0: -128, z1: 127 }, 0, 0);
+    expect(order.length).toBe(256);
+    expect(order[0]).toBe('0,0');
+    expect(new Set(order).size).toBe(256);
+    const d = (k: string) => Math.max(...k.split(',').map((n) => Math.abs(Number(n))));
+    for (let i = 1; i < order.length; i++) expect(Math.hypot(...order[i].split(',').map(Number))).toBeGreaterThanOrEqual(Math.hypot(...order[i - 1].split(',').map(Number)));
+    expect(order.filter((k) => lodFull(...(k.split(',').map(Number) as [number, number]), 0, 0)).length).toBe(49);
+    expect(order.filter((k) => d(k) <= 3).length).toBe(49);
   });
 });

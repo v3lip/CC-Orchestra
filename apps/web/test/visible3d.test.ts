@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MapBlock } from '@ccfleet/protocol';
-import { visibleBlocks } from '../src/lib/visible3d';
+import { surface, visibleBlocks } from '../src/lib/visible3d';
 
 /** A solid cube of stone from (0,0,0) to (n-1,n-1,n-1), as layers keyed "x,z". */
 function cube(n: number, extra: MapBlock[] = []) {
@@ -44,5 +44,20 @@ describe('3D view: which blocks are drawn', () => {
     expect(r.fluids.length).toBe(1);
     // The stone next to the water is now visible through it.
     expect(r.solids.some((b) => b.x === 2 && b.y === 0 && b.z === 2)).toBe(true);
+  });
+});
+
+describe('3D view: far chunks draw their surface', () => {
+  it('keeps the top block of each column, ores at any depth, and water on top', () => {
+    const cells: MapBlock[] = [];
+    for (let y = 0; y < 6; y++) cells.push({ x: 0, y, z: 0, block: 'minecraft:stone', cell: 'solid', observedAt: 0 });
+    cells.push({ x: 0, y: 2, z: 0, block: 'minecraft:diamond_ore', cell: 'solid', observedAt: 0 });
+    for (let y = 0; y < 3; y++) cells.push({ x: 1, y, z: 0, block: 'minecraft:dirt', cell: 'solid', observedAt: 0 });
+    cells.push({ x: 1, y: 3, z: 0, block: 'minecraft:water', cell: 'fluid', observedAt: 0 });
+    cells.push({ x: 0, y: 1, z: 0, block: 'minecraft:water', cell: 'fluid', observedAt: 0 }); // under rock: hidden
+    const r = surface(cells);
+    expect(r.solids.map((b) => `${b.x},${b.y}`).sort()).toEqual(['0,5', '1,2']);
+    expect(r.ores.map((b) => b.y)).toEqual([2]);
+    expect(r.fluids.map((b) => `${b.x},${b.y}`)).toEqual(['1,3']);
   });
 });

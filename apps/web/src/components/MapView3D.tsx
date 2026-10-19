@@ -5,8 +5,8 @@ import type { MapBlock, TunnelParams, Vec3 } from '@ccfleet/protocol';
 import { HEADING_VECTORS, sectionBox } from '@ccfleet/protocol';
 import { mapCache, useFleet } from '../lib/store';
 import { STATUS_COLOR, blockColor, shortItem, statusOf } from '../lib/status';
-import { type Visible, cellsByChunk, cellsIn, classify } from '../lib/visible3d';
-import { chunkWork } from '../lib/chunks';
+import { type Visible, cellsIn, classify, surface } from '../lib/visible3d';
+import { MAX_INSTANCES, chunkOrder, chunkWork, lodFull } from '../lib/chunks';
 
 /** Blocks loaded and drawn around the centre: ±R across, BELOW under and ABOVE over it. */
 const R = 128;
@@ -31,6 +31,8 @@ function colorOf(b: MapBlock): THREE.Color {
 
 /** Map updates arrive up to 10 times a second while turtles work: rebuild at most this often. */
 const MAP_REBUILD_MS = 300;
+/** Time a full rebuild may take per animation frame. */
+const FRAME_BUDGET_MS = 10;
 /** Outline of one ore block, reused for every ore. */
 const ORE_EDGES = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.04, 1.04, 1.04)).getAttribute('position');
 
@@ -56,6 +58,10 @@ interface ChunkMesh {
   version: number;
   blocks: number;
   ores: number;
+  /** Drawn as the top surface only (far away, or to stay under the instance cap). */
+  surface: boolean;
+  /** Surface only because of the cap, though near enough for full detail. */
+  capped: boolean;
 }
 
 interface Materials {
@@ -84,7 +90,7 @@ function disposeMaterials(m: Materials): void {
 }
 
 /** The meshes for one chunk column's visible blocks (materials and box geometry shared). */
-function buildChunkMesh(v: Visible, mats: Materials, version: number): ChunkMesh {
+function buildChunkMesh(v: Visible, mats: Materials, version: number, surface = false, capped = false): ChunkMesh {
   const group = new THREE.Group();
   const pickable: ChunkMesh['pickable'] = [];
   const add = (cells: MapBlock[], material: THREE.Material, size = 1, tint?: (c: THREE.Color) => THREE.Color) => {
@@ -115,7 +121,7 @@ function buildChunkMesh(v: Visible, mats: Materials, version: number): ChunkMesh
     g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     group.add(new THREE.LineSegments(g, mats.edge));
   }
-  return { group, pickable, version, blocks: v.solids.length + v.fluids.length + v.ores.length, ores: v.ores.length };
+  return { group, pickable, version, blocks: v.solids.length + v.fluids.length + v.ores.length, ores: v.ores.length, surface, capped };
 }
 
 /** Free a chunk's GPU buffers (the shared box geometry and materials stay). */
@@ -138,7 +144,7 @@ export default function MapView3D() {
   const [hover, setHover] = useState<{ block: MapBlock; sx: number; sy: number }>();
   const [xray, setXray] = useState(false);
   const [cut, setCut] = useState(true);
-  const [stats, setStats] = useState({ blocks: 0, ores: 0 });
+  const [stats, setStats] = useState({ blocks: 0, ores: 0, capped: 0, building: 0 });
 
   const world = useFleet((s) => s.world);
   const dimension = useFleet((s) => s.dimension);
@@ -255,20 +261,23 @@ export default function MapView3D() {
     );
   }, [world, dimension, center]);
 
-  // Rebuilt right away when the view changes, and throttled for map updates (below).
+  // Rebuilt when the view changes (all chunks, nearest first, a few per frame) and,
+  // throttled, for map updates (only chunks whose map data changed).
+  const pass = useRef<{ queue: string[]; used: number; frame: number } | undefined>(undefined);
   const rebuild = useRef<(full: boolean) => void>(() => {});
   rebuild.current = (full) => {
     const s = s3.current;
     if (!s) return;
     const view = { x0: center.x - R, x1: center.x + R, z0: center.z - R, z1: center.z + R, y0: center.y - BELOW, y1: cut ? Math.min(center.y + ABOVE, y) : center.y + ABOVE };
     const layer = (yy: number) => mapCache.layer(yy);
+    const ccx = Math.floor(center.x / 16);
+    const ccz = Math.floor(center.z / 16);
     if (!s.materials || s.materials.xray !== xray) {
       if (s.materials) disposeMaterials(s.materials);
       s.materials = makeMaterials(xray);
       full = true;
     }
-    const inView: string[] = [];
-    for (let cx = Math.floor(view.x0 / 16); cx <= Math.floor(view.x1 / 16); cx++) for (let cz = Math.floor(view.z0 / 16); cz <= Math.floor(view.z1 / 16); cz++) inView.push(`${cx},${cz}`);
+    const inView = chunkOrder(view, ccx, ccz);
     const drop = (k: string) => {
       const c = s.chunks.get(k);
       if (!c) return;
@@ -276,40 +285,69 @@ export default function MapView3D() {
       disposeChunk(c);
       s.chunks.delete(k);
     };
-    const build = (k: string, cells: MapBlock[]) => {
+    /** Build one chunk; `used` = instances already drawn by nearer chunks. Returns its count. */
+    const build = (k: string, used: number) => {
+      const [cx, cz] = k.split(',').map(Number);
+      const box = { ...view, x0: Math.max(view.x0, cx * 16), x1: Math.min(view.x1, cx * 16 + 15), z0: Math.max(view.z0, cz * 16), z1: Math.min(view.z1, cz * 16 + 15) };
+      const cells = cellsIn(layer, box);
+      const near = lodFull(cx, cz, ccx, ccz);
+      let v = near ? classify(cells, layer, view) : surface(cells);
+      const capped = near && used + v.solids.length + v.fluids.length + v.ores.length > MAX_INSTANCES;
+      if (capped) v = surface(cells);
+      const c = buildChunkMesh(v, s.materials!, mapCache.version(k), !near || capped, capped);
       drop(k);
-      const c = buildChunkMesh(classify(cells, layer, view), s.materials!, mapCache.version(k));
       s.chunks.set(k, c);
       s.blocks.add(c.group);
+      return c.blocks;
     };
+    const updateStats = () => {
+      let blocks = 0;
+      let ores = 0;
+      let capped = 0;
+      for (const c of s.chunks.values()) {
+        blocks += c.blocks;
+        ores += c.ores;
+        if (c.capped) capped++;
+      }
+      setStats({ blocks, ores, capped, building: pass.current?.queue.length ?? 0 });
+    };
+
     if (full) {
-      for (const k of [...s.chunks.keys()]) drop(k);
-      const byChunk = cellsByChunk(layer, view);
-      for (const k of inView) build(k, byChunk.get(k) ?? []);
+      // Chunks out of view go now; the rest are replaced nearest first, the old meshes
+      // staying on screen until then, so the view never freezes or goes blank.
+      if (pass.current) cancelAnimationFrame(pass.current.frame);
+      const keep = new Set(inView);
+      for (const k of [...s.chunks.keys()]) if (!keep.has(k)) drop(k);
+      const p = { queue: [...inView], used: 0, frame: 0 };
+      pass.current = p;
+      const step = () => {
+        const t0 = performance.now();
+        while (p.queue.length && performance.now() - t0 < FRAME_BUDGET_MS) p.used += build(p.queue.shift()!, p.used);
+        updateStats();
+        if (p.queue.length) p.frame = requestAnimationFrame(step);
+        else if (pass.current === p) {
+          pass.current = undefined;
+          updateStats();
+        }
+      };
+      step();
     } else {
       const versions = new Map([...s.chunks].map(([k, c]) => [k, c.version]));
+      // Chunks a running full pass hasn't reached yet are rebuilt by it anyway.
+      const pending = new Set(pass.current?.queue ?? []);
       const work = chunkWork(inView, versions, (k) => mapCache.version(k));
       for (const k of work.drop) drop(k);
       for (const k of work.rebuild) {
-        const [cx, cz] = k.split(',').map(Number);
-        const box = { ...view, x0: Math.max(view.x0, cx * 16), x1: Math.min(view.x1, cx * 16 + 15), z0: Math.max(view.z0, cz * 16), z1: Math.min(view.z1, cz * 16 + 15) };
-        build(k, cellsIn(layer, box));
+        if (pending.has(k)) continue;
+        const others = [...s.chunks].reduce((n, [ok, c]) => (ok === k ? n : n + c.blocks), 0);
+        build(k, others);
       }
-      rebuilt.current = work.rebuild.length;
+      updateStats();
     }
-    let blocks = 0;
-    let ores = 0;
-    for (const c of s.chunks.values()) {
-      blocks += c.blocks;
-      ores += c.ores;
-    }
-    setStats({ blocks, ores });
     lastBuild.current = performance.now();
   };
   const lastBuild = useRef(0);
   const pendingBuild = useRef<number | undefined>(undefined);
-  /** Chunks rebuilt by the last map update (for the toolbar). */
-  const rebuilt = useRef(0);
   useEffect(() => rebuild.current(true), [center, xray, cut, y, world, dimension]);
   useEffect(() => {
     if (pendingBuild.current !== undefined) return;
@@ -319,7 +357,13 @@ export default function MapView3D() {
       rebuild.current(false);
     }, wait);
   }, [mapVersion]);
-  useEffect(() => () => window.clearTimeout(pendingBuild.current), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(pendingBuild.current);
+      if (pass.current) cancelAnimationFrame(pass.current.frame);
+    },
+    [],
+  );
 
   // ------------------------------------------------------------------ turtles, jobs, depots
 
@@ -500,6 +544,13 @@ export default function MapView3D() {
         </button>
         <span className="ml-1 font-mono">
           {stats.blocks} blocks · {stats.ores} ores · centre {center.x} {center.y} {center.z}
+          {stats.building > 0 && <span className="text-sky-300"> · loading {stats.building} chunks</span>}
+          {stats.capped > 0 && (
+            <span className="text-amber-300" title={`Over ${MAX_INSTANCES.toLocaleString()} blocks: the farthest of the near chunks show only their top surface and ores`}>
+              {' '}
+              · detail reduced in {stats.capped} chunks
+            </span>
+          )}
         </span>
       </div>
       <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-black/55 px-2 py-1 font-mono text-[10px] text-dim">

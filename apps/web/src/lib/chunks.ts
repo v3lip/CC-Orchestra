@@ -57,3 +57,18 @@ export function chunkWork(inView: string[], built: Map<string, number>, version:
   const drop = [...built.keys()].filter((k) => !view.has(k));
   return { rebuild, drop };
 }
+
+/** Chunks within this many chunks of the centre (Chebyshev) get full detail. */
+export const LOD_FULL_RADIUS = 3;
+/** Most blocks the 3D view draws; beyond it near chunks fall back to their surface. */
+export const MAX_INSTANCES = 200_000;
+
+export const lodFull = (cx: number, cz: number, ccx: number, ccz: number) => Math.max(Math.abs(cx - ccx), Math.abs(cz - ccz)) <= LOD_FULL_RADIUS;
+
+/** The chunk columns covering a box, nearest to the centre chunk first. */
+export function chunkOrder(box: { x0: number; x1: number; z0: number; z1: number }, ccx: number, ccz: number): string[] {
+  const out: { k: string; d: number }[] = [];
+  for (let cx = Math.floor(box.x0 / CHUNK); cx <= Math.floor(box.x1 / CHUNK); cx++)
+    for (let cz = Math.floor(box.z0 / CHUNK); cz <= Math.floor(box.z1 / CHUNK); cz++) out.push({ k: chunkKey(cx, cz), d: (cx - ccx) ** 2 + (cz - ccz) ** 2 });
+  return out.sort((a, b) => a.d - b.d).map((c) => c.k);
+}
