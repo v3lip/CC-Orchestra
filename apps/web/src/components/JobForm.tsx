@@ -134,6 +134,14 @@ export function JobForm({ onDone }: { onDone: () => void }) {
   const multi = selection.length > 1;
 
   const [v, setV] = useState(() => initialForm(focusId ?? selection[0] ?? '', depots[0]?.id ?? ''));
+  // A start position picked on the map ("New job starting here…").
+  const prefill = useFleet((s) => s.jobPrefill);
+  useEffect(() => {
+    if (!prefill) return;
+    const o = prefill.origin;
+    setV((cur) => ({ ...cur, originMode: 'manual', x: String(o.x), y: String(o.y), z: String(o.z), heading: String(prefill.heading ?? cur.heading) }));
+    useFleet.getState().clearJobPrefill();
+  }, [prefill]);
   const [est, setEst] = useState<{ cells: number; fuel: number; seconds: number; trips: number; note: string; warnings: string[] }>();
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);

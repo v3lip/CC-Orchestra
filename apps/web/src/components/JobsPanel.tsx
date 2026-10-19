@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { JobView } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { useFleet } from '../lib/store';
@@ -32,6 +32,11 @@ export function JobsPanel() {
   const jobMap = useFleet((s) => s.jobs);
   const selection = useFleet((s) => s.selection);
   const [creating, setCreating] = useState(false);
+  // "New job starting here…" from the map opens the form.
+  const prefill = useFleet((s) => s.jobPrefill);
+  useEffect(() => {
+    if (prefill) setCreating(true);
+  }, [prefill]);
   const jobs = Object.values(jobMap).sort((a, b) => b.createdAt - a.createdAt);
   if (creating) return <JobForm onDone={() => setCreating(false)} />;
 

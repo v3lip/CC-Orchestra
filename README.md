@@ -7,7 +7,7 @@ Self-hosted fleet management for [CC: Tweaked](https://tweaked.cc/) mining turtl
 ## Features
 
 - **Live map** of everything the turtles have seen, per Y level, with a chunk overlay (which chunks Chunk Controllers keep loaded) and an **◆ ore overlay**, plus a **3D view** with x-ray and a Y cut-off to look into tunnels.
-- **Manual control** of one or many turtles (W/S/A/D/R/F, dig, inspect, refuel), with an emergency stop.
+- **Manual control** of one or many turtles (W/S/A/D/R/F, dig, inspect, refuel), with an emergency stop, and a **right-click menu** on the map: send a turtle to a spot, start a job there, pause/resume/stop a turtle.
 - **Mining jobs:** tunnel, branch mine, grid mine and quarry. Turtles return to a depot to unload and refuel, then continue where they stopped; jobs pause safely and can be resumed.
 - **Finding ores:** scan every block around the work area so the map shows what's there, and follow veins of chosen ores (any mod's ores; "Any ore", Diamond, Coal, custom ids) out of the tunnel and back.
 - **Ore search:** an Ores tab listing every ore seen but not mined, by type and vein, nearest first; click to jump the map there.

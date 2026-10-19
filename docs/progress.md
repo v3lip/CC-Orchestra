@@ -1,5 +1,15 @@
 # Progress notes
 
+## Right-click menu on the map (2026-10-19)
+
+- **Right-click** (without dragging; right-drag still pans) on the 2D map or in the 3D view opens a menu:
+  - On a turtle: select only it / add or remove from selection, Details, Jobs, Pause, Resume, Cancel queued commands, Emergency stop.
+  - On a place: **Send <turtle> here** for the selected turtles (up to 4; uses Go to: known space, no digging, giving way to others), **New job starting here…** (opens the job form with "Enter coordinates" filled in, and the right-clicked turtle chosen if nothing is selected), Copy coordinates, Mark/unmark the chunk as force-loaded, Show in 3D / Show in 2D.
+  - 2D: the place is the cell at the current Y; if it is rock, "send here" goes to the open cell on top of it. 3D: the block under the mouse; "send here" goes to the open cell on the side that was clicked.
+- Fixed along the way: on the 2D map, zoomed out, the turtle icon is bigger than its block but only the block counted as the turtle, so a visible turtle couldn't be clicked. The click area now covers the icon.
+- Checked in a browser on a simulator instance: both menus in 2D and 3D, sending a turtle (it moved there), New job here (form filled in), face-based target in 3D, Escape closes, no console errors.
+
+
 ## Bug fixes after the 3D work (2026-10-19)
 
 - **Gravel:** after digging, the turtle now checks the cell again before moving. Before, it walked into gravel that had already fallen back in (the agent had reported it), the move failed ("Movement obstructed", shown as the turtle's last error), and it recovered by digging again. Expected recovery, but one wasted move per gravel block. A dig that finds nothing now looks at the cell, so a stale "solid" on the map can't make it dig in circles. In-game, falling gravel is an entity for a moment, so a failed move can still happen there; the retry handles it.

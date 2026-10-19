@@ -203,7 +203,10 @@ export function MapView() {
   const turtleAt = (clientX: number, clientY: number): TurtleView | undefined => {
     const p = toWorld(clientX, clientY);
     let best: TurtleView | undefined;
-    let bestD = 0.75;
+    // At least the drawn icon (radius max(4px, 0.42 block)), which is bigger than a
+    // block when zoomed out.
+    const s = cam.current.scale;
+    let bestD = Math.max(0.75, (Math.max(4, s * 0.42) + 2) / s);
     for (const t of visibleTurtles) {
       const pos = t.state!.pose.pos!;
       const dist = Math.hypot(pos.x + 0.5 - p.x, pos.z + 0.5 - p.z);
@@ -247,6 +250,17 @@ export function MapView() {
   const onPointerUp = (e: React.PointerEvent) => {
     const d = drag.current;
     drag.current = null;
+    // A right-click without dragging opens the menu for that spot.
+    if (d?.kind === 'pan' && e.button === 2 && Math.abs(d.ex - d.sx) + Math.abs(d.ey - d.sy) <= 4) {
+      const p = toWorld(e.clientX, e.clientY);
+      const here = { x: Math.floor(p.x), y, z: Math.floor(p.z) };
+      const solid = (c: { x: number; y: number; z: number }) => mapCache.layer(c.y)?.get(`${c.x},${c.z}`)?.cell === 'solid';
+      // Into rock no turtle can go: then the space on top of it, if that's open.
+      const above = { ...here, y: here.y + 1 };
+      const cell = !solid(here) ? here : !solid(above) ? above : undefined;
+      useFleet.getState().setContextMenu({ x: e.clientX, y: e.clientY, view: '2d', cell, block: here, turtleId: turtleAt(e.clientX, e.clientY)?.id });
+      return redraw.current();
+    }
     if (!d || d.kind !== 'box') return redraw.current();
     const st = useFleet.getState();
     const moved = Math.abs(d.ex - d.sx) + Math.abs(d.ey - d.sy) > 4;
@@ -325,7 +339,7 @@ export function MapView() {
             {hoverBlock ? (hoverBlock.block ? shortItem(hoverBlock.block) : 'known empty') : <span className="text-slate-500">unknown</span>}
           </>
         ) : (
-          'drag: select · right-drag: pan · wheel: zoom · alt+wheel: Y level · double-click: focus'
+          'drag: select · right-drag: pan · right-click: menu · wheel: zoom · alt+wheel: Y level · double-click: focus'
         )}
       </div>
       <div className="pointer-events-none absolute right-3 top-3 flex flex-col items-center rounded bg-black/50 px-2 py-1 text-[10px] text-dim">

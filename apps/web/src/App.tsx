@@ -11,6 +11,7 @@ import { EnrollDialog } from './components/EnrollDialog';
 import { JobsPanel } from './components/JobsPanel';
 import { DepotsPanel } from './components/DepotsPanel';
 import { OresPanel } from './components/OresPanel';
+import { MapContextMenu } from './components/MapContextMenu';
 
 export function App() {
   const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking');
@@ -314,6 +315,7 @@ function MapArea() {
       ) : (
         <MapView />
       )}
+      <MapContextMenu />
       <div className="absolute bottom-3 right-3 z-10 flex overflow-hidden rounded border border-edge text-[11px]">
         {(['2d', '3d'] as const).map((m) => (
           <button key={m} onClick={() => setMode(m)} className={`px-2.5 py-1 font-semibold ${mode === m ? 'bg-cyan-700 text-white' : 'bg-black/60 text-dim hover:text-ink'}`}>

@@ -1,6 +1,19 @@
 import { create } from 'zustand';
-import type { BatchView, ChunkNeed, DepotView, EventView, ForcedChunk, GroupView, JobView, MapBlock, Targets, TunnelParams, TurtleView, UiServerMsg } from '@ccfleet/protocol';
+import type { BatchView, ChunkNeed, DepotView, EventView, ForcedChunk, GroupView, Heading, JobView, MapBlock, Targets, TunnelParams, TurtleView, UiServerMsg, Vec3 } from '@ccfleet/protocol';
 import { api } from './api';
+
+/** What was right-clicked on the map, and where the menu goes on screen. */
+export interface MapMenu {
+  /** Screen position (client coordinates). */
+  x: number;
+  y: number;
+  view: '2d' | '3d';
+  /** The cell a turtle would go to (open space), if any. */
+  cell?: Vec3;
+  /** The block clicked (3D), or the cell (2D). Used as a job's start. */
+  block?: MapBlock | Vec3;
+  turtleId?: string;
+}
 
 export interface Toast {
   id: number;
@@ -38,6 +51,13 @@ interface FleetState {
   /** 2D slice map or 3D view. */
   mapMode: '2d' | '3d';
   setMapMode(m: '2d' | '3d'): void;
+  /** Right-click menu on the map, if open. */
+  contextMenu?: MapMenu;
+  setContextMenu(m: MapMenu | undefined): void;
+  /** Start position for the next new job ("New job here" on the map). */
+  jobPrefill?: { origin: Vec3; heading?: Heading };
+  newJobAt(origin: Vec3, heading?: Heading): void;
+  clearJobPrefill(): void;
   /** Chunks the operator marked as force-loaded (FTB Chunks etc.). */
   forcedChunks: ForcedChunk[];
   /** Map clicks toggle "force-loaded" on chunks instead of selecting turtles. */
@@ -85,6 +105,11 @@ export const useFleet = create<FleetState>((set, get) => ({
   setShowOres: (showOres) => set({ showOres }),
   mapMode: '2d',
   setMapMode: (mapMode) => set({ mapMode }),
+  contextMenu: undefined,
+  setContextMenu: (contextMenu) => set({ contextMenu }),
+  jobPrefill: undefined,
+  newJobAt: (origin, heading) => set({ jobPrefill: { origin, heading }, rightTab: 'jobs', contextMenu: undefined }),
+  clearJobPrefill: () => set({ jobPrefill: undefined }),
   showChunks: true,
   setShowChunks: (showChunks) => set({ showChunks, ...(showChunks ? {} : { markChunks: false }) }),
   forcedChunks: [],

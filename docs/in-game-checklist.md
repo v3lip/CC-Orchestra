@@ -48,6 +48,8 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 34. [ ] **X-ray on:** ordinary blocks fade, ores stay bright. **Cut above Y:** move the Y slider to a tunnel's level to look down into it.
 35. [ ] Click a turtle in 3D: it becomes selected (fleet list and details panel follow). Hover a block: its name and coordinates show.
 
+36. [ ] **Right-click menu:** select a turtle, right-click an open spot on the map (2D or 3D) → **Send … here**: it drives there through known space. Right-click a turtle: Pause / Resume / Details work. **New job starting here…** opens the job form with those coordinates.
+
 ### Chunky turtles (Chunk Controller)
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.

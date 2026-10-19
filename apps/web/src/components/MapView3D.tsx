@@ -340,19 +340,21 @@ export default function MapView3D() {
     ray.current.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), s.camera);
     return ray.current;
   };
-  const pickBlock = (e: React.PointerEvent | React.MouseEvent) => {
+  /** The nearest block under the mouse, with the face it was hit on. */
+  const pickHit = (e: React.PointerEvent | React.MouseEvent) => {
     const s = s3.current;
     if (!s) return undefined;
     const rc = pick(e);
-    let best: { block: MapBlock; d: number } | undefined;
+    let best: { block: MapBlock; d: number; normal?: THREE.Vector3 } | undefined;
     for (const { mesh, cells } of s.pickable) {
       // In x-ray, faded blocks don't get in the way of picking ores.
       if (xray && (mesh.material as THREE.Material).transparent) continue;
       const hit = rc.intersectObject(mesh)[0];
-      if (hit?.instanceId !== undefined && (!best || hit.distance < best.d)) best = { block: cells[hit.instanceId], d: hit.distance };
+      if (hit?.instanceId !== undefined && (!best || hit.distance < best.d)) best = { block: cells[hit.instanceId], d: hit.distance, normal: hit.face?.normal };
     }
-    return best?.block;
+    return best;
   };
+  const pickBlock = (e: React.PointerEvent | React.MouseEvent) => pickHit(e)?.block;
   const down = useRef<{ x: number; y: number } | undefined>(undefined);
   const onMove = (e: React.PointerEvent) => {
     if (e.buttons) return setHover(undefined);
@@ -363,9 +365,22 @@ export default function MapView3D() {
   const onUp = (e: React.PointerEvent) => {
     const d = down.current;
     down.current = undefined;
-    if (!d || Math.abs(d.x - e.clientX) + Math.abs(d.y - e.clientY) > 4 || e.button !== 0) return;
+    if (!d || Math.abs(d.x - e.clientX) + Math.abs(d.y - e.clientY) > 4) return;
     const s = s3.current;
     if (!s) return;
+    if (e.button === 2) {
+      // Right-click (not a pan): the menu for the turtle or block under the mouse.
+      const th = pick(e).intersectObjects(s.turtleMeshes, false)[0];
+      const bh = pickHit(e);
+      const turtleId = th && (!bh || th.distance <= bh.d) ? (th.object.userData.turtleId as string) : undefined;
+      // The open cell on the side of the block that was clicked.
+      const n = bh?.normal;
+      const cell = bh && n ? { x: bh.block.x + Math.round(n.x), y: bh.block.y + Math.round(n.y), z: bh.block.z + Math.round(n.z) } : undefined;
+      setHover(undefined);
+      useFleet.getState().setContextMenu({ x: e.clientX, y: e.clientY, view: '3d', cell, block: bh?.block, turtleId });
+      return;
+    }
+    if (e.button !== 0) return;
     const hit = pick(e).intersectObjects(s.turtleMeshes, false)[0];
     const id = hit?.object.userData.turtleId as string | undefined;
     const st = useFleet.getState();
@@ -407,7 +422,7 @@ export default function MapView3D() {
         </span>
       </div>
       <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-black/55 px-2 py-1 font-mono text-[10px] text-dim">
-        left-drag: orbit · right-drag: pan · wheel: zoom · click: select turtle · double-click: look at block
+        left-drag: orbit · right-drag: pan · right-click: menu · wheel: zoom · click: select turtle · double-click: look at block
       </div>
       {hover && (
         <div className="pointer-events-none absolute rounded bg-black/80 px-2 py-1 text-[11px] text-ink" style={{ left: hover.sx + 14, top: hover.sy + 10 }}>
