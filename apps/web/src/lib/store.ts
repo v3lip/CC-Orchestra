@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { BatchView, ChunkNeed, DepotView, EventView, ForcedChunk, GroupView, Heading, JobView, MapBlock, Targets, TunnelParams, TurtleView, UiServerMsg, Vec3 } from '@ccfleet/protocol';
 import { api } from './api';
+import { CHUNK, chunksTouched, tiles } from './chunks';
 
 /** What was right-clicked on the map, and where the menu goes on screen. */
 export interface MapMenu {
@@ -298,7 +299,6 @@ export async function runBatch(p: Promise<BatchView>) {
 
 // ------------------------------------------------------------------ map cache
 
-const CHUNK = 16;
 const BAND = 16;
 
 /**
@@ -311,12 +311,18 @@ class MapCache {
   private loaded = new Set<string>();
   private inflight = new Set<string>();
   private generation = 0;
+  /** Bumped per chunk (and its edge neighbours) whenever blocks there change. */
+  private versions = new Map<string, number>();
+  private versionBase = 0;
 
   reset() {
     this.byY.clear();
     this.loaded.clear();
     this.inflight.clear();
     this.generation++;
+    // Everything changed: versions restart above any number handed out before.
+    this.versionBase += 1_000_000;
+    this.versions.clear();
   }
 
   put(blocks: MapBlock[]) {
@@ -325,6 +331,12 @@ class MapCache {
       if (!layer) this.byY.set(b.y, (layer = new Map()));
       layer.set(`${b.x},${b.z}`, b);
     }
+    for (const k of chunksTouched(blocks)) this.versions.set(k, (this.versions.get(k) ?? this.versionBase) + 1);
+  }
+
+  /** Changes whenever blocks in (or at the edge of) this chunk change. */
+  version(chunk: string): number {
+    return this.versions.get(chunk) ?? this.versionBase;
   }
 
   layer(y: number) {
@@ -351,33 +363,32 @@ class MapCache {
     const cz1 = Math.floor(z1 / CHUNK);
     if ((cx1 - cx0 + 1) * (cz1 - cz0 + 1) > 4096) return; // zoomed out too far to load more
     for (const band of bands) {
-      let mx0 = Infinity, mx1 = -Infinity, mz0 = Infinity, mz1 = -Infinity;
-      const keys: string[] = [];
+      const missing: { cx: number; cz: number }[] = [];
       for (let cx = cx0; cx <= cx1; cx++)
         for (let cz = cz0; cz <= cz1; cz++) {
           const k = `${cx},${cz},${band}`;
-          if (this.loaded.has(k) || this.inflight.has(k)) continue;
-          keys.push(k);
-          mx0 = Math.min(mx0, cx);
-          mx1 = Math.max(mx1, cx);
-          mz0 = Math.min(mz0, cz);
-          mz1 = Math.max(mz1, cz);
+          if (!this.loaded.has(k) && !this.inflight.has(k)) missing.push({ cx, cz });
         }
-      if (!keys.length) continue;
-      keys.forEach((k) => this.inflight.add(k));
-      const gen = this.generation;
-      api
-        .mapBlocks({ world, dimension, x0: mx0 * CHUNK, x1: mx1 * CHUNK + CHUNK - 1, z0: mz0 * CHUNK, z1: mz1 * CHUNK + CHUNK - 1, y0: band * BAND, y1: band * BAND + BAND - 1 })
-        .then((r) => {
-          if (gen !== this.generation) return;
-          this.put(r.blocks);
-          keys.forEach((k) => {
-            this.inflight.delete(k);
-            this.loaded.add(k);
-          });
-          onLoaded();
-        })
-        .catch(() => keys.forEach((k) => this.inflight.delete(k)));
+      // Small requests: one big one could pass the server's row limit and come back cut
+      // short, yet be marked loaded.
+      for (const t of tiles(missing)) {
+        const keys = t.chunks.map((c) => `${c.cx},${c.cz},${band}`);
+        keys.forEach((k) => this.inflight.add(k));
+        const gen = this.generation;
+        api
+          .mapBlocks({ world, dimension, x0: t.cx0 * CHUNK, x1: t.cx1 * CHUNK + CHUNK - 1, z0: t.cz0 * CHUNK, z1: t.cz1 * CHUNK + CHUNK - 1, y0: band * BAND, y1: band * BAND + BAND - 1 })
+          .then((r) => {
+            if (gen !== this.generation) return;
+            this.put(r.blocks);
+            keys.forEach((k) => {
+              this.inflight.delete(k);
+              // A cut-short answer stays unloaded, so it is asked again (in smaller parts if needed).
+              if (!r.truncated) this.loaded.add(k);
+            });
+            onLoaded();
+          })
+          .catch(() => keys.forEach((k) => this.inflight.delete(k)));
+      }
     }
   }
 }

@@ -1,5 +1,13 @@
 # Progress notes
 
+## Milestone 6, B1 — 3D view in chunks (2026-10-19)
+
+- The 3D view is built from one mesh group per 16×16 chunk column. The map cache keeps a version per chunk; a turtle's map update rebuilds only the chunks it touched (and the neighbour across an edge), not the whole view. The area grew from 80×80 to 256×256.
+- Measured with a 256×256 box of the real map (31 000 cells): full rebuild 15 ms, map update 0.2 ms (before: 43 ms on every update). Fully mapped worst case (2.6 M cells): update 8 ms, full rebuild 2.5 s; level of detail (B2) is next.
+- Fixed along the way: map requests covering many chunks could pass the server's 100 000-row limit and come back cut short, yet be marked loaded (never refetched). Requests are now tiles of at most 4×4 chunks (≤65 536 cells), and a truncated answer isn't marked loaded.
+- Tests: chunk bookkeeping (edge neighbours, tiling under the row limit, one chunk rebuilt per update, reset invalidates). Checked in a browser on a sim instance with 3 turtles quarrying: renders, updates live, no console errors.
+
+
 ## Quality check of milestones 1–5 (2026-10-19)
 
 - A fresh clone installs from the lockfile (0 vulnerabilities), typechecks, builds and passes all tests: everything needed is in git.

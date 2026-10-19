@@ -85,7 +85,7 @@ Moved to a later milestone: formations (splitting branch/grid/quarry jobs betwee
 
 | | Step | Done when |
 |---|---|---|
-| B1 | Chunk-column meshes, incremental rebuild | test: an update touching one chunk rebuilds one mesh; benchmark of a full 256×256 area stays interactive |
+| B1 ✅ | Chunk-column meshes, incremental rebuild | test: an update touching one chunk rebuilds one mesh; benchmark of a full 256×256 area stays interactive. **Done 2026-10-19:** area 256×256; with the real map (31k cells) a full rebuild takes 15 ms and a map update 0.2 ms (was 43 ms per update). Fully mapped worst case: update 8 ms, full rebuild 2.5 s → B2 |
 | B2 | Level of detail and instance cap | benchmark with a dense mapped area; toolbar shows reduced detail |
 | B3 | Overview inset | browser check: click moves the 3D box |
 | B4 | Job progress in 3D, go-to routes | browser check on a sim instance with a running job |

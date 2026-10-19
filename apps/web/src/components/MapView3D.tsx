@@ -5,10 +5,11 @@ import type { MapBlock, TunnelParams, Vec3 } from '@ccfleet/protocol';
 import { HEADING_VECTORS, sectionBox } from '@ccfleet/protocol';
 import { mapCache, useFleet } from '../lib/store';
 import { STATUS_COLOR, blockColor, shortItem, statusOf } from '../lib/status';
-import { visibleBlocks } from '../lib/visible3d';
+import { type Visible, cellsByChunk, cellsIn, classify } from '../lib/visible3d';
+import { chunkWork } from '../lib/chunks';
 
 /** Blocks loaded and drawn around the centre: ±R across, BELOW under and ABOVE over it. */
-const R = 40;
+const R = 128;
 const BELOW = 28;
 const ABOVE = 12;
 
@@ -29,7 +30,7 @@ function colorOf(b: MapBlock): THREE.Color {
 }
 
 /** Map updates arrive up to 10 times a second while turtles work: rebuild at most this often. */
-const MAP_REBUILD_MS = 500;
+const MAP_REBUILD_MS = 300;
 /** Outline of one ore block, reused for every ore. */
 const ORE_EDGES = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.04, 1.04, 1.04)).getAttribute('position');
 
@@ -40,10 +41,89 @@ interface Scene {
   controls: OrbitControls;
   blocks: THREE.Group;
   overlays: THREE.Group;
-  /** Instanced meshes with the block behind each instance, for picking. */
-  pickable: { mesh: THREE.InstancedMesh; cells: MapBlock[] }[];
+  /** Block meshes per chunk column "cx,cz", with the map version they were built from. */
+  chunks: Map<string, ChunkMesh>;
+  /** Shared by all chunk meshes; replaced when x-ray changes. */
+  materials?: Materials;
   turtleMeshes: THREE.Object3D[];
   labels: Map<string, { el: HTMLDivElement; pos: THREE.Vector3 }>;
+}
+
+interface ChunkMesh {
+  group: THREE.Group;
+  /** Instanced meshes with the block behind each instance, for picking. */
+  pickable: { mesh: THREE.InstancedMesh; cells: MapBlock[] }[];
+  version: number;
+  blocks: number;
+  ores: number;
+}
+
+interface Materials {
+  xray: boolean;
+  solid: THREE.Material;
+  fluid: THREE.Material;
+  ore: THREE.Material;
+  edge: THREE.LineBasicMaterial;
+}
+
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+const WHITE = new THREE.Color('#ffffff');
+
+function makeMaterials(xray: boolean): Materials {
+  return {
+    xray,
+    solid: xray ? new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.09, depthWrite: false }) : new THREE.MeshLambertMaterial(),
+    fluid: new THREE.MeshLambertMaterial({ transparent: true, opacity: xray ? 0.12 : 0.55, depthWrite: false }),
+    ore: new THREE.MeshBasicMaterial(),
+    edge: new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.7 }),
+  };
+}
+
+function disposeMaterials(m: Materials): void {
+  for (const x of [m.solid, m.fluid, m.ore, m.edge]) x.dispose();
+}
+
+/** The meshes for one chunk column's visible blocks (materials and box geometry shared). */
+function buildChunkMesh(v: Visible, mats: Materials, version: number): ChunkMesh {
+  const group = new THREE.Group();
+  const pickable: ChunkMesh['pickable'] = [];
+  const add = (cells: MapBlock[], material: THREE.Material, size = 1, tint?: (c: THREE.Color) => THREE.Color) => {
+    if (!cells.length) return;
+    const mesh = new THREE.InstancedMesh(BOX, material, cells.length);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const sc = new THREE.Vector3(size, size, size);
+    cells.forEach((b, i) => {
+      mesh.setMatrixAt(i, m.compose(new THREE.Vector3(b.x + 0.5, b.y + 0.5, b.z + 0.5), q, sc));
+      const c = colorOf(b);
+      mesh.setColorAt(i, tint ? tint(c.clone()) : c);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    group.add(mesh);
+    pickable.push({ mesh, cells });
+  };
+  add(v.solids, mats.solid);
+  add(v.fluids, mats.fluid);
+  // Ores unlit in their own colour (lightened so dark ones like coal still show), outlined.
+  add(v.ores, mats.ore, mats.xray ? 0.8 : 1.002, (c) => c.lerp(WHITE, 0.25));
+  if (v.ores.length) {
+    const pts: number[] = [];
+    const e = ORE_EDGES;
+    for (const b of v.ores) for (let i = 0; i < e.count; i++) pts.push(e.getX(i) + b.x + 0.5, e.getY(i) + b.y + 0.5, e.getZ(i) + b.z + 0.5);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    group.add(new THREE.LineSegments(g, mats.edge));
+  }
+  return { group, pickable, version, blocks: v.solids.length + v.fluids.length + v.ores.length, ores: v.ores.length };
+}
+
+/** Free a chunk's GPU buffers (the shared box geometry and materials stay). */
+function disposeChunk(c: ChunkMesh): void {
+  for (const o of c.group.children) {
+    if (o instanceof THREE.InstancedMesh) o.dispose();
+    else if (o instanceof THREE.LineSegments) o.geometry.dispose();
+  }
 }
 
 /**
@@ -101,7 +181,7 @@ export default function MapView3D() {
     renderer.setClearColor('#070b12');
     wrap.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog('#070b12', 90, 180);
+    scene.fog = new THREE.Fog('#070b12', R * 1.2, R * 2.4);
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -114,7 +194,7 @@ export default function MapView3D() {
     const blocks = new THREE.Group();
     const overlays = new THREE.Group();
     scene.add(blocks, overlays);
-    s3.current = { renderer, scene, camera, controls, blocks, overlays, pickable: [], turtleMeshes: [], labels: new Map() };
+    s3.current = { renderer, scene, camera, controls, blocks, overlays, chunks: new Map(), turtleMeshes: [], labels: new Map() };
 
     const resize = () => {
       const w = wrap.clientWidth;
@@ -148,6 +228,8 @@ export default function MapView3D() {
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();
+      for (const c of s3.current?.chunks.values() ?? []) disposeChunk(c);
+      if (s3.current?.materials) disposeMaterials(s3.current.materials);
       renderer.dispose();
       wrap.removeChild(renderer.domElement);
       s3.current = undefined;
@@ -174,68 +256,67 @@ export default function MapView3D() {
   }, [world, dimension, center]);
 
   // Rebuilt right away when the view changes, and throttled for map updates (below).
-  const rebuild = useRef<() => void>(() => {});
-  rebuild.current = () => {
+  const rebuild = useRef<(full: boolean) => void>(() => {});
+  rebuild.current = (full) => {
     const s = s3.current;
     if (!s) return;
-    const x0 = center.x - R;
-    const x1 = center.x + R;
-    const z0 = center.z - R;
-    const z1 = center.z + R;
-    const y0 = center.y - BELOW;
-    const y1 = cut ? Math.min(center.y + ABOVE, y) : center.y + ABOVE;
-    const { solids, ores, fluids } = visibleBlocks((yy) => mapCache.layer(yy), { x0, x1, y0, y1, z0, z1 });
-
-    for (const c of [...s.blocks.children]) {
-      s.blocks.remove(c);
-      const m = c as THREE.InstancedMesh;
-      m.geometry.dispose();
-      (m.material as THREE.Material).dispose();
+    const view = { x0: center.x - R, x1: center.x + R, z0: center.z - R, z1: center.z + R, y0: center.y - BELOW, y1: cut ? Math.min(center.y + ABOVE, y) : center.y + ABOVE };
+    const layer = (yy: number) => mapCache.layer(yy);
+    if (!s.materials || s.materials.xray !== xray) {
+      if (s.materials) disposeMaterials(s.materials);
+      s.materials = makeMaterials(xray);
+      full = true;
     }
-    s.pickable = [];
-    const box = new THREE.BoxGeometry(1, 1, 1);
-    const add = (cells: MapBlock[], material: THREE.Material, size = 1, tint?: (c: THREE.Color) => THREE.Color) => {
-      if (!cells.length) return;
-      const mesh = new THREE.InstancedMesh(box.clone(), material, cells.length);
-      const m = new THREE.Matrix4();
-      const q = new THREE.Quaternion();
-      const sc = new THREE.Vector3(size, size, size);
-      cells.forEach((b, i) => {
-        mesh.setMatrixAt(i, m.compose(new THREE.Vector3(b.x + 0.5, b.y + 0.5, b.z + 0.5), q, sc));
-        const c = colorOf(b);
-        mesh.setColorAt(i, tint ? tint(c.clone()) : c);
-      });
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      s.blocks.add(mesh);
-      s.pickable.push({ mesh, cells });
+    const inView: string[] = [];
+    for (let cx = Math.floor(view.x0 / 16); cx <= Math.floor(view.x1 / 16); cx++) for (let cz = Math.floor(view.z0 / 16); cz <= Math.floor(view.z1 / 16); cz++) inView.push(`${cx},${cz}`);
+    const drop = (k: string) => {
+      const c = s.chunks.get(k);
+      if (!c) return;
+      s.blocks.remove(c.group);
+      disposeChunk(c);
+      s.chunks.delete(k);
     };
-    add(solids, xray ? new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.09, depthWrite: false }) : new THREE.MeshLambertMaterial());
-    add(fluids, new THREE.MeshLambertMaterial({ transparent: true, opacity: xray ? 0.12 : 0.55, depthWrite: false }));
-    // Ores unlit in their own colour (lightened so dark ones like coal still show), outlined.
-    const white = new THREE.Color('#ffffff');
-    add(ores, new THREE.MeshBasicMaterial(), xray ? 0.8 : 1.002, (c) => c.lerp(white, 0.25));
-    if (ores.length) {
-      const pts: number[] = [];
-      const e = ORE_EDGES;
-      for (const b of ores.slice(0, 4000)) for (let i = 0; i < e.count; i++) pts.push(e.getX(i) + b.x + 0.5, e.getY(i) + b.y + 0.5, e.getZ(i) + b.z + 0.5);
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      s.blocks.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.7 })));
+    const build = (k: string, cells: MapBlock[]) => {
+      drop(k);
+      const c = buildChunkMesh(classify(cells, layer, view), s.materials!, mapCache.version(k));
+      s.chunks.set(k, c);
+      s.blocks.add(c.group);
+    };
+    if (full) {
+      for (const k of [...s.chunks.keys()]) drop(k);
+      const byChunk = cellsByChunk(layer, view);
+      for (const k of inView) build(k, byChunk.get(k) ?? []);
+    } else {
+      const versions = new Map([...s.chunks].map(([k, c]) => [k, c.version]));
+      const work = chunkWork(inView, versions, (k) => mapCache.version(k));
+      for (const k of work.drop) drop(k);
+      for (const k of work.rebuild) {
+        const [cx, cz] = k.split(',').map(Number);
+        const box = { ...view, x0: Math.max(view.x0, cx * 16), x1: Math.min(view.x1, cx * 16 + 15), z0: Math.max(view.z0, cz * 16), z1: Math.min(view.z1, cz * 16 + 15) };
+        build(k, cellsIn(layer, box));
+      }
+      rebuilt.current = work.rebuild.length;
     }
-    box.dispose();
-    setStats({ blocks: solids.length + fluids.length + ores.length, ores: ores.length });
+    let blocks = 0;
+    let ores = 0;
+    for (const c of s.chunks.values()) {
+      blocks += c.blocks;
+      ores += c.ores;
+    }
+    setStats({ blocks, ores });
     lastBuild.current = performance.now();
   };
   const lastBuild = useRef(0);
   const pendingBuild = useRef<number | undefined>(undefined);
-  useEffect(() => rebuild.current(), [center, xray, cut, y, world, dimension]);
+  /** Chunks rebuilt by the last map update (for the toolbar). */
+  const rebuilt = useRef(0);
+  useEffect(() => rebuild.current(true), [center, xray, cut, y, world, dimension]);
   useEffect(() => {
     if (pendingBuild.current !== undefined) return;
     const wait = Math.max(0, MAP_REBUILD_MS - (performance.now() - lastBuild.current));
     pendingBuild.current = window.setTimeout(() => {
       pendingBuild.current = undefined;
-      rebuild.current();
+      rebuild.current(false);
     }, wait);
   }, [mapVersion]);
   useEffect(() => () => window.clearTimeout(pendingBuild.current), []);
@@ -346,7 +427,7 @@ export default function MapView3D() {
     if (!s) return undefined;
     const rc = pick(e);
     let best: { block: MapBlock; d: number; normal?: THREE.Vector3 } | undefined;
-    for (const { mesh, cells } of s.pickable) {
+    for (const { mesh, cells } of [...s.chunks.values()].flatMap((c) => c.pickable)) {
       // In x-ray, faded blocks don't get in the way of picking ores.
       if (xray && (mesh.material as THREE.Material).transparent) continue;
       const hit = rc.intersectObject(mesh)[0];

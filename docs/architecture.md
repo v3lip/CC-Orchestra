@@ -79,7 +79,7 @@ Tunnels and quarries can also be **shared** between turtles: split into side-by-
 
 ### 3D view
 
-`MapView3D` (lazy-loaded with three.js) draws the shared map cache in a box around a centre (±40 across, 28 below, 12 above): one `InstancedMesh` each for ordinary blocks, ores and fluids, rebuilt when map data, the centre, the Y cut or x-ray changes; blocks with a solid neighbour on all six sides are skipped. Overlays (turtles, job areas, routes, depots) are rebuilt from the store; name tags are HTML elements positioned each frame. Picking uses the instanced meshes (blocks) and the turtle bodies.
+`MapView3D` (lazy-loaded with three.js) draws the shared map cache in a box around a centre (±128 across, 28 below, 12 above), as one mesh group per 16×16 chunk column (instanced meshes for ordinary blocks, ores and fluids, shared materials and geometry). The map cache keeps a version per chunk (bumped for the chunk and the neighbour across an edge a changed block touches); a map update rebuilds only chunks whose version moved, a view change (centre, Y cut, x-ray) rebuilds all. Blocks with a solid neighbour on all six sides are skipped. Map data is requested in tiles of at most 4×4 chunks, so no answer can hit the server's row limit. Overlays (turtles, job areas, routes, depots) are rebuilt from the store; name tags are HTML elements positioned each frame. Picking uses the instanced meshes (blocks) and the turtle bodies.
 
 ### Ore search
 
