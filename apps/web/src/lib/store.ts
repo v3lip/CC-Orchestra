@@ -261,7 +261,11 @@ export function connectLive() {
   ws.onclose = () => {
     if (socket !== ws) return;
     useFleet.setState({ live: 'down' });
-    if (!stopped) setTimeout(connectLive, retry);
+    // Refused because the session ended (expired, logged out elsewhere)? A protected call
+    // answers 401 and the login screen shows, instead of retrying here forever.
+    api.info().catch(() => {});
+    // Checked again when the timer fires: logging out in between stops the retries.
+    if (!stopped) setTimeout(() => !stopped && connectLive(), retry);
     retry = Math.min(retry * 2, 15000);
   };
 }

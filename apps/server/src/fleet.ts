@@ -48,6 +48,12 @@ import type { Db } from './db';
 import { tx } from './db';
 import { digestEquals, newId, normalizeCode, now, pairingCode, randomToken, sha256 } from './util';
 
+/** Commands and batches older than this are deleted (hourly). */
+const KEEP_HISTORY_MS = 2 * 24 * 3600_000;
+/** The activity log keeps this many entries. */
+const KEEP_EVENTS = 20_000;
+const PRUNE_EVERY_MS = 3600_000;
+
 export interface TurtleConn {
   send(msg: ServerToTurtle): void;
   close(code?: number, reason?: string): void;
@@ -174,8 +180,25 @@ export class Fleet {
       heartbeatMs: opts.heartbeatMs ?? HEARTBEAT_INTERVAL_MS,
     };
     this.load();
+    this.prune();
     this.timers.push(setInterval(() => this.tick(), this.opts.tickMs));
     this.timers.push(setInterval(() => this.flush(), 100));
+    this.timers.push(setInterval(() => this.prune(), PRUNE_EVERY_MS));
+  }
+
+  /**
+   * Drop old history: every atomic turtle action is a command row (~90k a day while
+   * mining). Only recent commands are ever read back (late results, reconnects).
+   */
+  prune(t = now()): { commands: number; batches: number; events: number } {
+    if (this.closed) return { commands: 0, batches: 0, events: 0 };
+    const before = t - KEEP_HISTORY_MS;
+    const commands = Number(this.db.prepare('DELETE FROM commands WHERE created_at < ?').run(before).changes);
+    const batches = Number(this.db.prepare('DELETE FROM batches WHERE created_at < ?').run(before).changes);
+    const events = Number(
+      this.db.prepare('DELETE FROM events WHERE id <= (SELECT id FROM events ORDER BY id DESC LIMIT 1 OFFSET ?)').run(KEEP_EVENTS).changes,
+    );
+    return { commands, batches, events };
   }
 
   closed = false;

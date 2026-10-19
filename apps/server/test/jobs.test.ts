@@ -167,6 +167,26 @@ describe('tunnel job (TS agent)', () => {
     expect(world.get(5, 101, 0)?.name).toBe('minecraft:chest');
   });
 
+  it('a result that never comes from a connected turtle pauses with that reason, not "went offline"', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world);
+    let digs = 0;
+    t.faults.stallBeforeResult = (op) => (op === 'dig' && ++digs === 3 ? 4000 : undefined); // past the 3 s result timeout
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 6 }));
+    server.jobs.start(job.id);
+    const paused = await waitFor(() => (server.jobs.getJob(job.id)?.status === 'paused' ? server.jobs.getJob(job.id) : undefined), 20000, 'pause');
+    expect(server.fleet.turtleState(t.turtleId!)?.online).toBe(true);
+    expect(paused!.pauseReason).toContain('no answer');
+    expect(paused!.pauseReason).not.toContain('went offline');
+    // Resuming right away: the turtle is still busy with the late command; the job
+    // waits for it instead of failing, then finishes.
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    expect(allClear(world, 1, 2, 6)).toBe('clear');
+  });
+
   it('handles falling gravel by re-digging, without walking into the gravel first', async () => {
     const { server, world, depot } = await setup();
     fill(world, { x: 4, y: 101, z: 0 }, { x: 4, y: 105, z: 0 }, 'minecraft:gravel');

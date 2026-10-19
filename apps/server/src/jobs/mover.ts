@@ -56,6 +56,8 @@ const STATIC_WAIT_MS = 3000;
 /** How long to wait behind a moving turtle before trying another route. */
 const AGENT_WAIT_MS = 30_000;
 const POLL_MS = 200;
+/** How long to keep retrying a command the turtle refuses as busy. */
+const BUSY_WAIT_MS = 20_000;
 /** How many cells ahead a turtle looks for an oncoming one. */
 const LOOKAHEAD = 5;
 /** Path cost of stepping on a cell an oncoming turtle is about to use. */
@@ -100,8 +102,21 @@ export class Mover {
 
   async step(op: Op, args: Record<string, unknown> = {}): Promise<StepResult> {
     this.checkActive();
-    const r = await this.o.fleet.runStep(this.o.turtleId, op, args, this.o.executor);
-    if (r.status === 'undeliverable' || r.status === 'unknown') throw new Interrupt('turtle went offline');
+    let r = await this.o.fleet.runStep(this.o.turtleId, op, args, this.o.executor);
+    // "busy": the turtle is still finishing an earlier command (one whose result timed
+    // out, say). Give it a moment instead of failing the job.
+    for (let waited = 0; r.status === 'rejected' && r.code === 'busy' && waited < BUSY_WAIT_MS; waited += POLL_MS * 5) {
+      await sleep(POLL_MS * 5);
+      this.checkActive();
+      r = await this.o.fleet.runStep(this.o.turtleId, op, args, this.o.executor);
+    }
+    if (r.status === 'undeliverable' || r.status === 'unknown') {
+      // "unknown" also comes from a result timeout while the turtle is still connected.
+      if (r.status === 'unknown' && this.o.fleet.turtleState(this.o.turtleId)?.online) {
+        throw new Interrupt(`no answer from the turtle to ${op} in time (it is still connected); check it, then resume`);
+      }
+      throw new Interrupt('turtle went offline');
+    }
     if (r.status === 'cancelled') throw new Interrupt(this.o.isActive() ? 'command cancelled' : this.o.stopReason());
     if (r.status === 'rejected' && r.code === 'held') throw new Interrupt('turtle was stopped');
     if (r.status === 'rejected' || r.status === 'expired') throw new JobError(r.code ?? 'rejected', `${op} was refused: ${r.reason ?? r.status}`);

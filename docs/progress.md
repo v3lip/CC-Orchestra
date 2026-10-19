@@ -1,5 +1,15 @@
 # Progress notes
 
+## More fixes: timeouts, busy turtles, history growth, login (2026-10-19)
+
+- **A result that never comes from a connected turtle** paused the job with "turtle went offline". It now says the turtle didn't answer in time (and is still connected), so it isn't mistaken for a chunk or link problem.
+- **"busy" after resuming:** right after such a timeout the turtle may still be finishing that command, and resuming failed the job with "another command is running". The mover now waits for a busy turtle (up to 20 s) instead of failing.
+- **History grew without limit:** every atomic turtle action is a command row (~90 000 a day while mining; the real database had 73 000 after under a day). Commands and command batches older than 2 days are now deleted at start-up and hourly; the activity log keeps its newest 20 000 entries. Nothing reads older rows.
+- **`/api/events?limit=`** passed any number to SQL; `-1` returned the whole log. Now validated (1–1000).
+- **Dashboard after a session ends:** the live connection was refused and retried forever while the page showed "down". It now shows the login screen, and a logout stops the reconnect timer that was already scheduled.
+- Tests: 4 new (timeout reason and resume past "busy", dashboard socket needs a login, events limit, pruning); the ones about changed behaviour fail on the old code. Checked in a browser: an ended session leads to the login screen.
+
+
 ## Right-click menu on the map (2026-10-19)
 
 - **Right-click** (without dragging; right-drag still pans) on the 2D map or in the 3D view opens a menu:

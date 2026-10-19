@@ -98,6 +98,8 @@ export interface FaultHooks {
   crashAfterPhysicalMove?: (op: Op) => boolean;
   /** Return true to drop the connection after an ack is sent and before the result. */
   dropBeforeResult?: (op: Op) => boolean;
+  /** Return a delay (ms) to hold the result back while staying connected (a hung op). */
+  stallBeforeResult?: (op: Op) => number | undefined;
 }
 
 class Crash extends Error {}
@@ -438,6 +440,8 @@ export class SimTurtle {
       }
       outcome = { ok: false, code: 'internal', reason: (e as Error).message };
     }
+    const stall = this.faults.stallBeforeResult?.(msg.op);
+    if (stall) await sleep(stall);
     if (gen !== this.generation) return;
     const cancelled = !outcome.ok && outcome.reason === 'cancelled';
     const status = outcome.ok ? 'succeeded' : cancelled ? 'cancelled' : 'failed';

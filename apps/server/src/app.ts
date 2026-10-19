@@ -146,7 +146,10 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
     api.post('/api/cancel', async (req) => fleet.cancel(z.object({ targets: TargetsSchema }).parse(req.body).targets));
     api.get('/api/batches/:id', async (req, reply) => fleet.getBatch((req.params as { id: string }).id) ?? reply.code(404).send({ error: 'not found' }));
 
-    api.get('/api/events', async (req) => fleet.recentEvents(Math.min(Number((req.query as { limit?: string }).limit ?? 200), 1000)));
+    api.get('/api/events', async (req) => {
+      const q = z.object({ limit: z.coerce.number().int().min(1).max(1000).default(200) }).parse(req.query);
+      return fleet.recentEvents(q.limit);
+    });
 
     api.get('/api/map/ores', async (req) => {
       const q = z.object({ world: z.string(), dimension: z.string() }).parse(req.query);
