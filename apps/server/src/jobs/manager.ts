@@ -42,6 +42,8 @@ export interface JobRec {
     resume?: { pos: Vec3; heading: Heading };
     /** A depot trip is in progress ('finish' = final return, 'back' = unloaded, heading back). */
     servicing?: 'trip' | 'finish' | 'back';
+    /** Cells of slices not yet complete that are already counted in cellsCleared. */
+    counted?: string[];
   };
 }
 
@@ -203,11 +205,19 @@ export class JobManager {
 
   /**
    * Take the dock if it is free (or already ours). Otherwise returns a label for the
-   * holder. The dock is held from heading in until the turtle steps off it; a lock held
-   * by an offline turtle stays, as it may still be standing there.
+   * holder. The dock is held from heading in until the turtle steps off it. A holder
+   * nothing drives any more (job paused, turtle offline) keeps it only while it stands on
+   * the dock (or may: position unknown); otherwise the dock passes on, and the paused
+   * job queues for it again when resumed.
    */
   tryLockDock(depotId: string, turtleId: string): string | undefined {
-    const holder = this.dockLocks.get(depotId);
+    let holder = this.dockLocks.get(depotId);
+    const dock = this.depots.get(depotId)?.dock;
+    if (holder && holder !== turtleId && dock && this.idleAwayFrom(holder, dock)) {
+      this.log('info', `${this.fleet.getTurtle(holder)?.name ?? holder} is stopped away from the dock; the dock passes to ${this.fleet.getTurtle(turtleId)?.name ?? turtleId}`, holder);
+      this.releaseDock(depotId, holder);
+      holder = undefined;
+    }
     if (!holder || holder === turtleId) {
       if (!holder) {
         this.dockLocks.set(depotId, turtleId);
@@ -217,6 +227,19 @@ export class JobManager {
     }
     const t = this.fleet.getTurtle(holder);
     return `${t?.name ?? holder}${t && t.connection === 'offline' ? ', offline — it may still be in the way' : ''}`;
+  }
+
+  /** Not driven by a job or go-to, and known to be somewhere other than `cell`. */
+  private idleAwayFrom(turtleId: string, cell: Vec3): boolean {
+    if (this.traffic.isAgent(turtleId)) return false;
+    const pose = this.fleet.getTurtle(turtleId)?.state?.pose;
+    if (!pose?.pos || pose.position !== 'known') return false;
+    return !eq(pose.pos, cell);
+  }
+
+  /** A claim on a waiting place still counts while its turtle is driven or stands there. */
+  private liveClaim(owner: string | undefined, cell: Vec3): boolean {
+    return !!owner && !this.idleAwayFrom(owner, cell);
   }
 
   /** The waiting spot this turtle holds at a depot, if any. */
@@ -237,7 +260,7 @@ export class JobManager {
     const claims = this.spotClaims.get(depotId) ?? new Map<string, string>();
     this.spotClaims.set(depotId, claims);
     const occupied = new Set(this.fleet.turtlePositions(d.world, d.dimension, turtleId).map(key));
-    const free = d.waiting.filter((s) => !claims.has(key(s)) && !occupied.has(key(s))).sort((a, b) => manhattan(a, from) - manhattan(b, from));
+    const free = d.waiting.filter((s) => !this.liveClaim(claims.get(key(s)), s) && !occupied.has(key(s))).sort((a, b) => manhattan(a, from) - manhattan(b, from));
     if (!free.length) return undefined;
     claims.set(key(free[0]), turtleId);
     return free[0];
@@ -248,7 +271,7 @@ export class JobManager {
     const claims = this.spotClaims.get(depotId) ?? new Map<string, string>();
     this.spotClaims.set(depotId, claims);
     const owner = claims.get(key(cell));
-    if (owner && owner !== turtleId) return false;
+    if (owner && owner !== turtleId && this.liveClaim(owner, cell)) return false;
     this.releaseSpot(depotId, turtleId);
     claims.set(key(cell), turtleId);
     return true;
@@ -257,7 +280,7 @@ export class JobManager {
   /** Is this cell claimed as a waiting place by another turtle? */
   cellClaimed(depotId: string, turtleId: string, cell: Vec3): boolean {
     const owner = this.spotClaims.get(depotId)?.get(key(cell));
-    return !!owner && owner !== turtleId;
+    return !!owner && owner !== turtleId && this.liveClaim(owner, cell);
   }
 
   /** The way the dock holder came in (and will most likely leave). */

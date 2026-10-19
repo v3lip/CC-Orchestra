@@ -25,7 +25,8 @@ const MAX_RETRIES_PER_CELL = 24;
 const DIR_TEXT: Record<Dir, string> = { front: 'in front of', up: 'above', down: 'below' };
 
 export class JobRunner {
-  private cleared = new Set<string>();
+  /** Cells counted in cellsCleared that belong to slices not yet complete (persisted). */
+  private counted: Set<string>;
   private lastRouteBroadcast = 0;
   /** Set once the turtle has stood on the dock; the dock is freed when it steps off. */
   private visitedDock = false;
@@ -39,6 +40,7 @@ export class JobRunner {
     private job: JobRec,
   ) {
     this.executor = `job:${job.view.id}`;
+    this.counted = new Set(job.checkpoint.counted ?? []);
     const v = job.view;
     this.m = new Mover({
       fleet,
@@ -92,6 +94,9 @@ export class JobRunner {
         await this.mineUnit(this.cp.slice);
         this.cp.slice++;
         this.v.progress.unitsDone = this.cp.slice;
+        // Cells of finished slices are never counted again: drop them from the set.
+        for (const k of this.counted) if ((this.unitOf(k) ?? 0) < this.cp.slice) this.counted.delete(k);
+        this.cp.counted = [...this.counted];
         this.mgr.save(this.job);
       }
       if (this.v.policy.returnHomeWhenDone) await this.service(true);
@@ -193,9 +198,25 @@ export class JobRunner {
     }
   }
 
+  /** The slice (global unit) a cell of the work area belongs to. */
+  private unitOf(k: string): number | undefined {
+    const [x, y, z] = k.split(',').map(Number);
+    let base = 0;
+    for (const s of this.v.segments) {
+      const l = tunnelLocal(s, { x, y, z });
+      if (l) return base + l.d;
+      base += s.length;
+    }
+    return undefined;
+  }
+
   private entered(p: Vec3): void {
-    if (this.inWork(p) && !this.cleared.has(key(p))) {
-      this.cleared.add(key(p));
+    const k = key(p);
+    // Count each cell once, across depot trips, pauses and resumes: cells of finished
+    // slices were counted when their slice was mined.
+    if (this.inWork(p) && !this.counted.has(k) && (this.unitOf(k) ?? -1) >= this.cp.slice) {
+      this.counted.add(k);
+      this.cp.counted = [...this.counted];
       this.v.progress.cellsCleared++;
     }
     const dock = this.mgr.getDepot(this.v.depotId)?.dock;
@@ -584,7 +605,8 @@ export class JobRunner {
         if (!data?.taken) break; // empty
         for (const s of data.slots ?? []) {
           await this.m.step('select', { slot: s.slot });
-          const burn = await this.m.step('refuel');
+          // Only what was just taken: the slot may also hold the carried reserve.
+          const burn = await this.m.step('refuel', { count: s.count });
           if (burn.status !== 'succeeded') {
             // Not fuel: put it back where it came from (verified), then tell the operator.
             await this.m.step('drop', { dir: depot.fuelDir, slot: s.slot });

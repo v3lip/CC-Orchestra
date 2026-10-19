@@ -1,5 +1,15 @@
 # Progress notes
 
+## Bug fixes after the 3D work (2026-10-19)
+
+- **Gravel:** after digging, the turtle now checks the cell again before moving. Before, it walked into gravel that had already fallen back in (the agent had reported it), the move failed ("Movement obstructed", shown as the turtle's last error), and it recovered by digging again. Expected recovery, but one wasted move per gravel block. A dig that finds nothing now looks at the cell, so a stale "solid" on the map can't make it dig in circles. In-game, falling gravel is an entity for a moment, so a failed move can still happen there; the retry handles it.
+- **Fuel reserve:** topping up at the depot burned the whole fuel slot, including the reserve the turtle carries there, and overshot the refuel target. It now burns only what it took from the chest.
+- **Cell counts:** cells were counted again after a pause or resume when the turtle walked back through the dug tunnel. Counted cells of unfinished slices are now kept in the job checkpoint.
+- **Dock lock:** a turtle paused (or dropped offline) on its way to the dock kept the dock, so every other turtle waited forever. A stopped turtle that isn't on the dock now gives it up (same for waiting spots); resumed, it queues again.
+- **3D view:** blocks on the edge of the drawn area counted neighbours outside it, so the sides of a well-mapped area showed holes (50 of 98 blocks drawn in the test). Rebuilds on map updates are throttled to twice a second (updates arrive every 100 ms; a fully mapped area took ~150 ms per rebuild), and block colours are parsed once.
+- Tests: 7 new (gravel without failed moves, reserve kept, cells counted once, paused dock holder, 4 for 3D visibility); each fails on the old code. Simulator: the 3-turtle quarry that showed the warning now has none, with exact cell counts; 3D view checked in a browser (render, hover, click to select, no console errors).
+
+
 ## Milestone 6, part 1 — 3D view (2026-10-18)
 
 - **2D | 3D switch** at the bottom right of the map. The 3D view (three.js, loaded only when opened: the main bundle is unchanged) shows what turtles have seen in an 80×80 area around the focused turtle, from 28 blocks below to 12 above it: blocks as cubes in the map colours (blocks enclosed on all sides are skipped), ores lit up, water and lava see-through, turtles in their status colour with a nose for the heading and a name tag, job areas as outlines (running ones bright), routes in yellow, the depot dock and waiting spots in green, and the job being drafted in amber.

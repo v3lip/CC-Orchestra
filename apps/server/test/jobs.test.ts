@@ -167,7 +167,7 @@ describe('tunnel job (TS agent)', () => {
     expect(world.get(5, 101, 0)?.name).toBe('minecraft:chest');
   });
 
-  it('handles falling gravel by re-digging', async () => {
+  it('handles falling gravel by re-digging, without walking into the gravel first', async () => {
     const { server, world, depot } = await setup();
     fill(world, { x: 4, y: 101, z: 0 }, { x: 4, y: 105, z: 0 }, 'minecraft:gravel');
     const t = await sim(server, world);
@@ -176,6 +176,9 @@ describe('tunnel job (TS agent)', () => {
     const done = await finish(server, job.id);
     expect(done.status).toBe('completed');
     expect(allClear(world, 1, 2, 5)).toBe('clear');
+    // The agent reports the gravel that fell back in right after each dig, so the
+    // turtle digs again instead of trying to move into it.
+    expect(server.fleet.recentEvents(200).filter((e) => e.message.includes('obstructed')).map((e) => e.message)).toEqual([]);
   });
 
   it('manual control pauses the job after the current step; resume finishes it', async () => {
@@ -220,6 +223,39 @@ describe('tunnel job (TS agent)', () => {
     expect(done.status).toBe('completed');
     expect(typeof t.body.fuel === 'number' && t.body.fuel > 500).toBe(true);
     expect(world.inventories.get('0,99,0')![0]!.count).toBeLessThan(32);
+  });
+
+  it('pausing during a depot trip and resuming does not count cells twice', async () => {
+    const { server, world, depot } = await setup();
+    const junk = slots(Object.fromEntries(Array.from({ length: 13 }, (_, i) => [i + 1, { name: `minecraft:junk_${i}`, count: 64 }])));
+    const t = await sim(server, world, { fuel: 800, slots: junk });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 8 }, { minFreeSlots: 1 }));
+    server.jobs.start(job.id);
+    // Pause on the way back to work, after unloading, deep enough into the tunnel to matter.
+    await waitFor(() => (server.jobs.getJob(job.id)?.progress.trips ?? 0) >= 1 && server.jobs.getJob(job.id)?.phase === 'traveling', 30000, 'a trip back to work');
+    await waitFor(() => t.body.pos.x >= 3, 30000, 'turtle back in the tunnel');
+    server.jobs.pause(job.id);
+    await waitFor(() => server.jobs.getJob(job.id)?.status === 'paused', 30000, 'pause');
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id);
+    expect(done.status).toBe('completed');
+    expect(allClear(world, 1, 2, 8)).toBe('clear');
+    expect(done.progress.cellsCleared).toBe(16);
+  });
+
+  it('topping up from the fuel chest burns only what it took, not the carried reserve', async () => {
+    const { server, world, depot } = await setup({ fuelChest: true });
+    world.inventories.get('0,99,0')![0] = { name: 'minecraft:coal', count: 32 };
+    const t = await sim(server, world, { fuel: 400, slots: slots({ 16: { name: 'minecraft:coal', count: 8 } }) });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 4 }, { fuelReserve: 100, refuelTarget: 800 }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    // Topped up to the target from the chest...
+    expect(typeof t.body.fuel === 'number' && t.body.fuel >= 800 && t.body.fuel < 800 + 80).toBe(true);
+    // ...and the reserve in the fuel slot is still there.
+    expect(t.body.slots[15]).toEqual({ name: 'minecraft:coal', count: 8 });
   });
 
   it('without enough fuel or a fuel chest it stops with an actionable error', async () => {

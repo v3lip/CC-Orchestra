@@ -2,29 +2,36 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MapBlock, TunnelParams, Vec3 } from '@ccfleet/protocol';
-import { HEADING_VECTORS, isOreBlock, sectionBox } from '@ccfleet/protocol';
+import { HEADING_VECTORS, sectionBox } from '@ccfleet/protocol';
 import { mapCache, useFleet } from '../lib/store';
 import { STATUS_COLOR, blockColor, shortItem, statusOf } from '../lib/status';
+import { visibleBlocks } from '../lib/visible3d';
 
 /** Blocks loaded and drawn around the centre: ±R across, BELOW under and ABOVE over it. */
 const R = 40;
 const BELOW = 28;
 const ABOVE = 12;
 
-const NEIGHBOURS: [number, number, number][] = [
-  [1, 0, 0],
-  [-1, 0, 0],
-  [0, 1, 0],
-  [0, -1, 0],
-  [0, 0, 1],
-  [0, 0, -1],
-];
 
 /** CSS colour (incl. "hsl(h s% l%)") to a three.js colour. */
 function color(css: string): THREE.Color {
   const m = /^hsl\(\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%\s*\)$/.exec(css);
   return m ? new THREE.Color().setHSL(Number(m[1]) / 360, Number(m[2]) / 100, Number(m[3]) / 100, THREE.SRGBColorSpace) : new THREE.Color(css);
 }
+
+/** Colours by block name, parsed once (a rebuild colours every visible block). */
+const blockColors = new Map<string, THREE.Color>();
+function colorOf(b: MapBlock): THREE.Color {
+  const name = b.cell === 'fluid' ? (b.block?.includes('lava') ? '#c2410c' : '#1d4ed8') : (b.block ?? '');
+  let c = blockColors.get(name);
+  if (!c) blockColors.set(name, (c = color(b.cell === 'fluid' ? name : blockColor(name))));
+  return c;
+}
+
+/** Map updates arrive up to 10 times a second while turtles work: rebuild at most this often. */
+const MAP_REBUILD_MS = 500;
+/** Outline of one ore block, reused for every ore. */
+const ORE_EDGES = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.04, 1.04, 1.04)).getAttribute('position');
 
 interface Scene {
   renderer: THREE.WebGLRenderer;
@@ -166,7 +173,9 @@ export default function MapView3D() {
     );
   }, [world, dimension, center]);
 
-  useEffect(() => {
+  // Rebuilt right away when the view changes, and throttled for map updates (below).
+  const rebuild = useRef<() => void>(() => {});
+  rebuild.current = () => {
     const s = s3.current;
     if (!s) return;
     const x0 = center.x - R;
@@ -175,28 +184,7 @@ export default function MapView3D() {
     const z1 = center.z + R;
     const y0 = center.y - BELOW;
     const y1 = cut ? Math.min(center.y + ABOVE, y) : center.y + ABOVE;
-    const at = (x: number, yy: number, z: number) => (yy > y1 || yy < y0 ? undefined : mapCache.layer(yy)?.get(`${x},${z}`));
-    const solids: MapBlock[] = [];
-    const ores: MapBlock[] = [];
-    const fluids: MapBlock[] = [];
-    for (let yy = y0; yy <= y1; yy++) {
-      const layer = mapCache.layer(yy);
-      if (!layer) continue;
-      for (const b of layer.values()) {
-        if (b.x < x0 || b.x > x1 || b.z < z0 || b.z > z1 || b.cell === 'empty') continue;
-        if (b.cell === 'fluid') {
-          fluids.push(b);
-          continue;
-        }
-        if (isOreBlock(b.block)) {
-          ores.push(b);
-          continue;
-        }
-        // Skip blocks with a solid block on every side: they can't be seen.
-        if (NEIGHBOURS.every(([dx, dy, dz]) => at(b.x + dx, b.y + dy, b.z + dz)?.cell === 'solid')) continue;
-        solids.push(b);
-      }
-    }
+    const { solids, ores, fluids } = visibleBlocks((yy) => mapCache.layer(yy), { x0, x1, y0, y1, z0, z1 });
 
     for (const c of [...s.blocks.children]) {
       s.blocks.remove(c);
@@ -214,8 +202,8 @@ export default function MapView3D() {
       const sc = new THREE.Vector3(size, size, size);
       cells.forEach((b, i) => {
         mesh.setMatrixAt(i, m.compose(new THREE.Vector3(b.x + 0.5, b.y + 0.5, b.z + 0.5), q, sc));
-        const c = color(b.cell === 'fluid' ? (b.block?.includes('lava') ? '#c2410c' : '#1d4ed8') : blockColor(b.block ?? ''));
-        mesh.setColorAt(i, tint ? tint(c) : c);
+        const c = colorOf(b);
+        mesh.setColorAt(i, tint ? tint(c.clone()) : c);
       });
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -229,7 +217,7 @@ export default function MapView3D() {
     add(ores, new THREE.MeshBasicMaterial(), xray ? 0.8 : 1.002, (c) => c.lerp(white, 0.25));
     if (ores.length) {
       const pts: number[] = [];
-      const e = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.04, 1.04, 1.04)).getAttribute('position');
+      const e = ORE_EDGES;
       for (const b of ores.slice(0, 4000)) for (let i = 0; i < e.count; i++) pts.push(e.getX(i) + b.x + 0.5, e.getY(i) + b.y + 0.5, e.getZ(i) + b.z + 0.5);
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
@@ -237,7 +225,20 @@ export default function MapView3D() {
     }
     box.dispose();
     setStats({ blocks: solids.length + fluids.length + ores.length, ores: ores.length });
-  }, [mapVersion, center, xray, cut, y, world, dimension]);
+    lastBuild.current = performance.now();
+  };
+  const lastBuild = useRef(0);
+  const pendingBuild = useRef<number | undefined>(undefined);
+  useEffect(() => rebuild.current(), [center, xray, cut, y, world, dimension]);
+  useEffect(() => {
+    if (pendingBuild.current !== undefined) return;
+    const wait = Math.max(0, MAP_REBUILD_MS - (performance.now() - lastBuild.current));
+    pendingBuild.current = window.setTimeout(() => {
+      pendingBuild.current = undefined;
+      rebuild.current();
+    }, wait);
+  }, [mapVersion]);
+  useEffect(() => () => window.clearTimeout(pendingBuild.current), []);
 
   // ------------------------------------------------------------------ turtles, jobs, depots
 

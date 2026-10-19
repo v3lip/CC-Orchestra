@@ -233,6 +233,34 @@ describe('campaigns', () => {
     expect(server.jobs.listDepots()[0].lockedBy).toBeUndefined();
   }, 90000);
 
+  it('a turtle paused on its way to the dock does not keep the dock from the others', async () => {
+    const { server, world, depot } = await site();
+    for (let x = 2; x < 14; x++) for (const z of [0, 5]) for (const y of [100, 101]) world.set(x, y, z, null);
+    const junk = () => slots(Object.fromEntries(Array.from({ length: 13 }, (_, i) => [i + 1, { name: `minecraft:junk_${i}`, count: 64 }])));
+    const a = await spawnTurtle(server, world, { x: 1, y: 100, z: 0, heading: 1 }, { opMs: 40, fuel: 800, slots: junk() });
+    const b = await spawnTurtle(server, world, { x: 1, y: 100, z: 5, heading: 1 }, { opMs: 4, fuel: 800, slots: junk() });
+    sims.push(a, b);
+    const ja = server.jobs.createJob({ name: 'A', depotId: depot.id, turtleId: a.turtleId!, strategy: 'tunnel', params: { origin: { x: 14, y: 100, z: 0 }, heading: 1, width: 1, height: 2, length: 4 }, policy: {} });
+    const jb = server.jobs.createJob({ name: 'B', depotId: depot.id, turtleId: b.turtleId!, strategy: 'tunnel', params: { origin: { x: 14, y: 100, z: 5 }, heading: 1, width: 1, height: 2, length: 4 }, policy: {} });
+    server.jobs.start(ja.id);
+    // A heads home and takes the dock: pause it before it gets there.
+    await waitFor(() => server.jobs.listDepots()[0].lockedBy === a.turtleId && a.body.pos.x > 0, 60000, 'A to take the dock on its way in');
+    server.jobs.pause(ja.id);
+    await waitFor(() => server.jobs.getJob(ja.id)?.status === 'paused', 30000, 'A paused');
+    expect(a.body.pos).not.toEqual({ x: 0, y: 100, z: 0 });
+    // B can still use the dock.
+    server.jobs.start(jb.id);
+    const done = await finishAll(server, [jb.id], 60000);
+    expect(done[0].error).toBeUndefined();
+    expect(done[0].status).toBe('completed');
+    expect(done[0].progress.trips).toBeGreaterThan(0);
+    // And A, resumed, finishes its trip and its tunnel.
+    server.jobs.start(ja.id);
+    const doneA = await finishAll(server, [ja.id], 60000);
+    expect(doneA[0].status).toBe('completed');
+    expect(world.spilled).toBe(0);
+  }, 150000);
+
   it('without waiting spots, a turtle waits near the dock, not back in its tunnel', async () => {
     const { server, world, depot } = await site();
     // Tunnels start 14 blocks out, reached through open corridors.

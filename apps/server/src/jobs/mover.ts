@@ -239,14 +239,22 @@ export class Mover {
     return alt.some((c) => avoid.has(key(c))) ? undefined : alt;
   }
 
-  /** Dig one adjacent cell. Returns false if it cannot be cleared (unbreakable). */
+  /**
+   * Dig one adjacent cell. Returns false if it cannot be cleared (unbreakable). Either way
+   * the map is up to date afterwards: the agent looks at the cell after digging (gravel
+   * may have fallen in), and if there was nothing to dig we look, so a stale "solid"
+   * doesn't stay.
+   */
   async digAt(digOp: 'dig' | 'digUp' | 'digDown', p: Vec3): Promise<boolean> {
     const r = await this.step(digOp);
     if (r.status === 'succeeded') {
       this.o.onDug?.(p, (r.data as { block?: string } | undefined)?.block);
       return true;
     }
-    if (r.code === 'nothing_to_dig') return true;
+    if (r.code === 'nothing_to_dig') {
+      await this.step(digOp === 'digUp' ? 'inspectUp' : digOp === 'digDown' ? 'inspectDown' : 'inspect');
+      return true;
+    }
     if (r.code === 'protected') throw new JobError('protected', `${r.reason} at ${fmt(p)} inside the job area. Remove it or add an exclusion, then resume.`);
     if (r.code === 'unbreakable') {
       this.unpassable.add(key(p));
@@ -280,6 +288,8 @@ export class Mover {
         if (c?.cell === 'solid') {
           if (!this.canDig(next, c.block)) return false;
           if (!(await this.digAt(digOp, next))) return false;
+          // Look again before moving: gravel or sand may have fallen into the gap.
+          if (this.known(next)?.cell === 'solid') continue;
         }
         await this.o.beforeMove?.(next);
         const r = await this.step(moveOp);
