@@ -95,7 +95,9 @@ describe('tunnel job (TS agent)', () => {
     expect(done.status).toBe('completed');
     expect(allClear(world, 1, 2, 8)).toBe('clear');
     expect(done.progress.cellsCleared).toBe(16);
-    expect(t.body.pos).toEqual({ x: 0, y: 100, z: 0 });
+    // Unloaded at the dock (below), then off it so a later job can use the dock: with no
+    // waiting spots, back where the job started.
+    expect(t.body.pos).toEqual({ x: 2, y: 100, z: 0 });
     expect(chestItems(world)).toBe(16);
     expect(done.progress.itemsUnloaded).toBe(16);
     expect(t.body.slots.filter(Boolean)).toHaveLength(0);

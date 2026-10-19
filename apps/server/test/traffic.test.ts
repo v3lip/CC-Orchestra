@@ -233,6 +233,40 @@ describe('campaigns', () => {
     expect(server.jobs.listDepots()[0].lockedBy).toBeUndefined();
   }, 90000);
 
+  it('a finished turtle leaves the dock, so a job started later can still unload', async () => {
+    const { server, world, depot } = await site();
+    const junk = () => slots(Object.fromEntries(Array.from({ length: 13 }, (_, i) => [i + 1, { name: `minecraft:junk_${i}`, count: 64 }])));
+    const a = await spawnTurtle(server, world, { x: 1, y: 100, z: 0, heading: 1 }, { opMs: 4, fuel: 800 });
+    sims.push(a);
+    const ja = server.jobs.createJob({ name: 'A', depotId: depot.id, turtleId: a.turtleId!, strategy: 'tunnel', params: { origin: { x: 2, y: 100, z: 0 }, heading: 1, width: 1, height: 2, length: 3 }, policy: {} });
+    server.jobs.start(ja.id);
+    expect((await finishAll(server, [ja.id]))[0].status).toBe('completed');
+    expect(a.body.pos).not.toEqual({ x: 0, y: 100, z: 0 });
+    // Only now does another turtle start a job that needs the dock.
+    const b = await spawnTurtle(server, world, { x: 1, y: 100, z: 3, heading: 1 }, { opMs: 4, fuel: 800, slots: junk() });
+    sims.push(b);
+    const jb = server.jobs.createJob({ name: 'B', depotId: depot.id, turtleId: b.turtleId!, strategy: 'tunnel', params: { origin: { x: 2, y: 100, z: 3 }, heading: 1, width: 1, height: 2, length: 3 }, policy: {} });
+    server.jobs.start(jb.id);
+    const done = (await finishAll(server, [jb.id]))[0];
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    expect(done.progress.trips).toBeGreaterThan(0);
+  }, 90000);
+
+  it('a turtle left standing on the dock gives a clear error, not "no route"', async () => {
+    const { server, world, depot } = await site();
+    const parked = await spawnTurtle(server, world, { x: 0, y: 100, z: 0, heading: 3 }, { opMs: 4 });
+    const junk = slots(Object.fromEntries(Array.from({ length: 13 }, (_, i) => [i + 1, { name: `minecraft:junk_${i}`, count: 64 }])));
+    const b = await spawnTurtle(server, world, { x: 1, y: 100, z: 3, heading: 1 }, { opMs: 4, fuel: 800, slots: junk });
+    sims.push(parked, b);
+    const jb = server.jobs.createJob({ name: 'B', depotId: depot.id, turtleId: b.turtleId!, strategy: 'tunnel', params: { origin: { x: 2, y: 100, z: 3 }, heading: 1, width: 1, height: 2, length: 3 }, policy: {} });
+    server.jobs.start(jb.id);
+    const done = (await finishAll(server, [jb.id]))[0];
+    expect(done.status).toBe('paused');
+    expect(done.error?.code).toBe('dock_blocked');
+    expect(done.error?.message).toContain(server.fleet.getTurtle(parked.turtleId!)!.name);
+  }, 90000);
+
   it('a turtle paused on its way to the dock does not keep the dock from the others', async () => {
     const { server, world, depot } = await site();
     for (let x = 2; x < 14; x++) for (const z of [0, 5]) for (const y of [100, 101]) world.set(x, y, z, null);

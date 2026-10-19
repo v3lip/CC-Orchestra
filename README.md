@@ -22,7 +22,7 @@ Self-hosted fleet management for [CC: Tweaked](https://tweaked.cc/) mining turtl
 
 ![3D view: a quarry dug by three turtles, its scanned walls and the ores in them](docs/screenshots/3d.png)
 
-> **Status: Milestone 5 in progress.** In-game so far: pairing, telemetry, manual control, tunnel jobs with unloading, and chunk loading with Chunk Controllers. Also confirmed in-game: multi-turtle traffic, waiting spots, campaigns, branch mine and quarry jobs, wall scanning and ore-vein following. New and tested **outside Minecraft**: giving way early when turtles meet head-on, grid mine jobs, the Ores tab. Verify with [docs/in-game-checklist.md](docs/in-game-checklist.md). See [docs/progress.md](docs/progress.md).
+> **Status: Milestones 1–4 done; 5 nearly (formations left); 6 started (3D view).** Confirmed in-game: pairing, telemetry, manual control, tunnel jobs with unloading, chunk loading with Chunk Controllers, multi-turtle traffic (incl. giving way head-on), waiting spots, campaigns, branch/grid/quarry jobs, wall scanning, ore-vein following and the Ores tab. Tested **outside Minecraft** so far: the 3D view and the right-click menu. Verify with [docs/in-game-checklist.md](docs/in-game-checklist.md). See [docs/progress.md](docs/progress.md).
 
 ## Quick start (local development)
 
@@ -109,7 +109,7 @@ install ABCD-EFGH
 
 1. ✅ Repository, backend, persistence, simulator, basic dashboard
 2. ✅ Real Lua turtle pairing, telemetry, calibrated position, manual control (confirmed in-game)
-3. ✅ One reliable tunnel job, automatic return, unloading and resume (in-game check pending)
-4. ✅ Multi-turtle scheduling, groups, depot queues, collision handling (in-game check pending)
-5. More strategies, formations, persistent 2D mapping (in progress: branch mine, grid mine, quarry, wall scanning, ore-vein following and ore search done; formations next)
+3. ✅ One reliable tunnel job, automatic return, unloading and resume (confirmed in-game)
+4. ✅ Multi-turtle scheduling, groups, depot queues, collision handling (confirmed in-game)
+5. More strategies, formations, persistent 2D mapping (branch mine, grid mine, quarry, wall scanning, ore-vein following, ore search and the persistent map done and confirmed in-game; formations left)
 6. 3D view and optional mapping integrations (in progress: 3D view done)

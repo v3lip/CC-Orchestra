@@ -464,9 +464,33 @@ export class JobRunner {
     this.mgr.releaseSpot(depot.id, this.v.turtleId);
     this.setNote(undefined);
     this.mgr.setPhase(this.job, 'returning');
+    // A turtle nothing drives (parked by hand, or idle) on the dock won't move away by
+    // itself: say so, instead of a puzzling "no route".
+    const parked = this.traffic.holder(this.v.turtleId, depot.dock);
+    if (parked && !parked.agent && !eq(this.m.pos(), depot.dock)) {
+      throw new JobError('dock_blocked', `${parked.name} is standing on the dock at ${fmt(depot.dock)} and nothing is driving it. Move it off the dock, then resume.`);
+    }
     this.mgr.setDockRoute(depot.id, this.v.turtleId, [this.m.pos(), ...(this.m.plan(depot.dock) ?? [])]);
     await this.m.moveTo(depot.dock);
     this.visitedDock = true;
+  }
+
+  /** After the last unload: a free waiting spot of the depot, else where the job started. */
+  private async parkOffDock(): Promise<void> {
+    const depot = this.depot;
+    const occupied = new Set(this.fleet.turtlePositions(this.v.world, this.v.dimension, this.v.turtleId).map(key));
+    const spots = depot.waiting
+      .filter((s) => !occupied.has(key(s)) && !this.mgr.cellClaimed(depot.id, this.v.turtleId, s))
+      .sort((a, b) => manhattan(a, depot.dock) - manhattan(b, depot.dock));
+    for (const p of [...spots, this.v.segments[0].origin]) {
+      try {
+        await this.m.moveTo(p);
+        return;
+      } catch (e) {
+        if (!(e instanceof JobError)) throw e;
+      }
+    }
+    this.mgr.log('warn', `${this.v.name}: could not move off the dock after finishing; move the turtle before another job needs the dock`, this.v.turtleId);
   }
 
   /**
@@ -527,11 +551,9 @@ export class JobRunner {
     this.v.progress.trips++;
 
     if (final) {
-      // Don't stay parked on a dock other jobs still need: wait in our own tunnel.
-      if (this.mgr.depotShared(depot.id, this.v.id)) {
-        this.mgr.setPhase(this.job, 'traveling');
-        await this.m.moveTo(this.v.segments[0].origin);
-      }
+      // Never stay parked on the dock: a job started later, by another turtle, needs it.
+      this.mgr.setPhase(this.job, 'traveling');
+      await this.parkOffDock();
       this.cp.servicing = undefined;
       this.mgr.save(this.job);
       this.mgr.releaseDock(depot.id, this.v.turtleId);

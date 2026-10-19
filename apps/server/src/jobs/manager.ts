@@ -302,11 +302,6 @@ export class JobManager {
     for (const [k, t] of claims) if (t === turtleId) claims.delete(k);
   }
 
-  /** Does another unfinished job use this depot? */
-  depotShared(depotId: string, exceptJobId: string): boolean {
-    return [...this.jobs.values()].some((j) => j.view.id !== exceptJobId && j.view.depotId === depotId && ACTIVE.has(j.view.status));
-  }
-
   releaseDock(depotId: string, turtleId: string): void {
     if (this.dockLocks.get(depotId) === turtleId) {
       this.dockLocks.delete(depotId);

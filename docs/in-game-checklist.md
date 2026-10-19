@@ -4,14 +4,16 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 ## Milestone 3: tunnel job, depot, unloading
 
+*Confirmed in-game by the user (2026-10-18): tunnel jobs with automatic return and unloading. The individual items below weren't each reported.*
+
 **Update first.** Restart the backend (`npm start`) so it loads Milestone 3 and migrates the database. Then on each turtle run `install` (no code; it keeps identity and position). The turtle screen should show `lua-0.3.0`. Jobs refuse to start on older agents.
 
 1. [ ] Build a depot next to a rock face (see [minecraft-setup.md](minecraft-setup.md#depot-for-jobs)): a dock cell, a chest in front of / above / below it, and optionally a fuel chest with some coal. Put a few coal in the turtle's slot 16.
 2. [ ] **Key check: chest as a peripheral.** Park the turtle on the dock. Press Ctrl+T to stop the agent, then run `lua` and `peripheral.wrap("front").list()` (or `"top"`/`"bottom"` for a chest above or below). It must return a table, not an error or `nil`. If it doesn't, unloading will safely refuse to drop anything; tell me. Afterwards `exit()` and `startup` to restart the agent.
 3. [ ] Dashboard → **Depots** → **New depot** → "Use … as the dock" → set the facing/chest sides → Save. The dock (cyan) and chest (`C`/`F`) markers appear on the map.
-4. [ ] Drive the turtle to the tunnel mouth facing the rock. **Jobs** → **New tunnel** → "Start the tunnel in front of the turtle" → 1×2×16 → check the dashed preview on the map → **Create & start**.
+4. [ ] Drive the turtle to the tunnel mouth facing the rock. **Jobs** → **+ New job** → **Tunnel** → "Start in front of the turtle" → 1×2×16 → check the dashed preview on the map → **Create & start**.
 5. [ ] The job runs: status *running*, phases mining → returning → unloading. The turtle digs only inside the outline. The map fills in the tunnel.
-6. [ ] When done, it returns to the dock, faces the chest, and unloads everything except coal in slot 16. Compare the chest contents with "items unloaded" on the job card.
+6. [ ] When done, it returns to the dock, faces the chest, and unloads everything except coal in slot 16. Compare the chest contents with "items unloaded" on the job card. Then it moves off the dock (to a free waiting spot, else back to where the job started), so the next job can use the dock.
 7. [ ] **Mid-job return:** start a longer tunnel (1×2×64) with "Return when free slots ≤" set to 13. It goes home partway, unloads, walks back to where it stopped, and continues.
 8. [ ] **Manual takeover:** while it's mining, press W. The job shows *paused: manual control took over* after the current block. **Resume** continues the tunnel.
 9. [ ] **E-STOP during a job:** it stops after the current action; the job pauses. Resume the turtle (Control → Resume), then resume the job.
@@ -20,27 +22,29 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 12. [ ] **Gravel:** tunnel through gravel or sand. Falling blocks are re-dug, and the tunnel ends up clear.
 13. [ ] **Chunk unload:** walk away mid-job. The turtle goes offline, the job pauses (*turtle went offline*), and the dashboard keeps its last position. Come back, then resume the job.
 
-14. [ ] **Several turtles, one depot:** put 2–3 turtles side by side at a rock face, 2+ blocks apart, facing the rock. Select them all → **Jobs** → **New tunnel**. Each gets its own tunnel in front of it (check the preview), then **Create & start N jobs**. When two want to unload at once, one shows *waiting for the dock (in use by …)* until the other is back in its tunnel.
+14. [ ] **Several turtles, one depot:** put 2–3 turtles side by side at a rock face, 2+ blocks apart, facing the rock. Select them all → **Jobs** → **+ New job** → **Tunnel** → **One each**. Each gets its own tunnel in front of it (check the preview), then **Create & start N jobs**. When two want to unload at once, one shows *waiting for the dock (in use by …)* until the other is back in its tunnel.
 
 ### Milestone 4: traffic, lanes, waiting spots, group controls
 
-20. [ ] **Waiting spots:** Depots → Edit → drive a turtle to an open cell near the dock (off the main path) → "+ position" → Save. Repeat for a second spot. They show as dashed **W** squares on the map.
-21. [ ] **Shared tunnel:** line up 2–3 turtles side by side facing the rock. Select them → Jobs → New tunnel → **Share one tunnel (lanes)**, width ≥ number of turtles. The preview shows one lane in front of each turtle. **Create & start**. A campaign card appears with combined progress.
-22. [ ] When two turtles need the dock at once, one goes to a waiting spot (job note: *waiting for the dock … at …*) and docks when the other has left. **Without waiting spots** it should still come back and wait a few blocks from the dock, out of the other turtle's way, not at the end of its tunnel.
-23. [ ] **Pause all / Resume all** on the campaign card. Also select two of the turtles: the "Jobs of N selected turtles" bar pauses/resumes just those.
-24. [ ] **Go to:** select one turtle, Control → **Go to…**, enter a nearby coordinate in known space. It drives there without digging. Pressing W during the trip stops it.
-25. [ ] **Head-on:** send two turtles towards each other through a 1-wide passage with a side alcove they have both seen (walked past or inspected). One steps into the alcove (activity log: *steps aside*), and both arrive. With no alcove, a *block each other* error appears within ~30 s instead of them pushing forever.
+*20–32 reported working in-game by the user (2026-10-18). Turtles meeting head-on bumped at first; fixed by giving way early (30).*
+
+20. [x] **Waiting spots:** Depots → Edit → drive a turtle to an open cell near the dock (off the main path) → "+ position" → Save. Repeat for a second spot. They show as dashed **W** squares on the map.
+21. [x] **Shared tunnel:** line up 2–3 turtles side by side facing the rock. Select them → Jobs → + New job → Tunnel → **Share one (lanes)**, width ≥ number of turtles. The preview shows one lane in front of each turtle. **Create & start**. A campaign card appears with combined progress.
+22. [x] When two turtles need the dock at once, one goes to a waiting spot (job note: *waiting for the dock … at …*) and docks when the other has left. **Without waiting spots** it should still come back and wait a few blocks from the dock, out of the other turtle's way, not at the end of its tunnel.
+23. [x] **Pause all / Resume all** on the campaign card. Also select two of the turtles: the "Jobs of N selected turtles" bar pauses/resumes just those.
+24. [x] **Go to:** select one turtle, Control → **Go to…**, enter a nearby coordinate in known space. It drives there without digging. Pressing W during the trip stops it.
+25. [x] **Head-on:** send two turtles towards each other through a 1-wide passage with a side alcove they have both seen (walked past or inspected). One steps into the alcove (activity log: *steps aside*), and both arrive. With no alcove, a *block each other* error appears within ~30 s instead of them pushing forever.
 
 ### Milestone 5: branch mine, quarry, ore scanning
 
-26. [ ] **Branch mine:** Jobs → New job → **Branch mine**, length 24, spacing 4, branch length 6, both sides. The map preview shows the corridor and branches. Run it: branches are 1 wide, with stone left between them.
-27. [ ] **Quarry:** New job → **Quarry** 5×5, 6 deep, in front of the turtle (on flat ground). It clears top down and goes back to unload when full.
-28. [ ] **Scan the walls:** tick it on a short tunnel. Afterwards the map, at the tunnel's level and one above, shows the walls on both sides as observed blocks (not unknown).
-29. [ ] **Follow veins:** tick **Diamond** (or **Any ore** for a quick test) plus Scan the walls, and tunnel at diamond level (Y 5–12 on 1.16). When it sees a matching ore beside the tunnel, the job note says *following a vein of …*; it mines just the ore blocks and returns to the tunnel. The job card shows ◆ finds, and **◆ Ores** on the map marks ores it has seen but not mined.
+26. [x] **Branch mine:** Jobs → + New job → **Branch**, length 24, spacing 4, branch length 6, both sides. The map preview shows the corridor and branches. Run it: branches are 1 wide, with stone left between them.
+27. [x] **Quarry:** New job → **Quarry** 5×5, 6 deep, in front of the turtle (on flat ground). It clears top down and goes back to unload when full.
+28. [x] **Scan the walls:** tick it on a short tunnel. Afterwards the map, at the tunnel's level and one above, shows the walls on both sides as observed blocks (not unknown).
+29. [x] **Follow veins:** tick **Diamond** (or **Any ore** for a quick test) plus Scan the walls, and tunnel at diamond level (Y 5–12 on 1.16). When it sees a matching ore beside the tunnel, the job note says *following a vein of …*; it mines just the ore blocks and returns to the tunnel. The job card shows ◆ finds, and **◆ Ores** on the map marks ores it has seen but not mined.
 
-30. [ ] **Head-on:** send two turtles towards each other through a 2-high tunnel (e.g. one returning to the depot, one going back to work). The one that started later switches row a few blocks before they meet (activity log: *takes a parallel path to pass …*); neither bumps into the other.
-31. [ ] **Grid mine:** New job → **Grid**, width 16, length 32, tunnel every 3, with Scan the walls. Tunnels are dug every 3 blocks, joined at alternate ends.
-32. [ ] **Ores tab:** after a job with wall scanning, open **Ores**: ores seen but not mined are listed by type and vein, nearest first. Clicking one centres the map on it at its Y level.
+30. [x] **Head-on:** send two turtles towards each other through a 2-high tunnel (e.g. one returning to the depot, one going back to work). The one that started later switches row a few blocks before they meet (activity log: *takes a parallel path to pass …*); neither bumps into the other.
+31. [x] **Grid mine:** New job → **Grid**, width 16, length 32, tunnel every 3, with Scan the walls. Tunnels are dug every 3 blocks, joined at alternate ends.
+32. [x] **Ores tab:** after a job with wall scanning, open **Ores**: ores seen but not mined are listed by type and vein, nearest first. Clicking one centres the map on it at its Y level.
 
 ### Milestone 6: 3D view
 

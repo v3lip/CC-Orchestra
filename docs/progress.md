@@ -1,5 +1,14 @@
 # Progress notes
 
+## Quality check of milestones 1–5 (2026-10-19)
+
+- A fresh clone installs from the lockfile (0 vulnerabilities), typechecks, builds and passes all tests: everything needed is in git.
+- No TODOs, debug output or disabled tests left; no unused dependencies.
+- End-to-end run against a throwaway backend with 3 simulated turtles through the real API, 23 checks: login required, dashboard served, groups (M1); manual command, telemetry, pause holds / resume releases (M2); tunnel job with pause and resume, trip home and unloading, exact cell count (M3); campaign in lanes, go-to (M4); branch, quarry and grid jobs with exact cell counts, wall scanning, ore search (M5); no errors or obstructed-move warnings in the log.
+- **Bug found and fixed:** a turtle that finished its job stayed on the dock when no other job used the depot at that moment; a job started later by another turtle then failed with "No known safe route … to the dock". A finished turtle now always leaves the dock (a free waiting spot, else where its job started), and a turtle nothing drives standing on the dock gives a clear `dock_blocked` error naming it. Two tests (the first fails on the old code).
+- Docs brought in line with what is confirmed in-game; outdated button names in the checklist fixed.
+
+
 ## More fixes: timeouts, busy turtles, history growth, login (2026-10-19)
 
 - **A result that never comes from a connected turtle** paused the job with "turtle went offline". It now says the turtle didn't answer in time (and is still connected), so it isn't mistaken for a chunk or link problem.
@@ -112,7 +121,7 @@ In-game, a turtle with a Chunk Controller went offline once, exactly as it stepp
 - Docs: why the Controller isn't enough, FTB Chunks setup, and the Esc/alt-tab pause gotcha (F3+P).
 - Tests: 58 (estimate chunk coverage and marking; diagnosis when the link drops at a border).
 
-## Milestone 4 — multi-turtle scheduling, traffic, depot queues ✅ (2026-10-18; in-game check pending)
+## Milestone 4 — multi-turtle scheduling, traffic, depot queues ✅ (2026-10-18; confirmed in-game)
 
 **Implemented**
 
@@ -155,7 +164,7 @@ Prompted by in-game use: Milestone 3 worked for one turtle, but multi-selecting 
 
 Still Milestone 4: cell/edge reservations so turtles can share corridors at the same time (today the depot approach is one-at-a-time and the rest relies on re-planning around turtles), dock waiting positions, splitting one big volume into lanes, and group-level job controls.
 
-## Milestone 3 — tunnel job, automatic return, verified unloading, resume ✅ (2026-10-18; in-game check pending)
+## Milestone 3 — tunnel job, automatic return, verified unloading, resume ✅ (2026-10-18; confirmed in-game)
 
 **Implemented**
 
@@ -185,7 +194,7 @@ Also clicked through by hand on a separate test instance: depot form, job form w
 - Fluids are walked through, not sealed. Lava flowing into a tunnel isn't handled specially.
 - The route to and from the dock must be open: travel never digs outside the job volume. A blocked route pauses with `no_route`.
 
-## Milestone 2 — Lua agent, pairing, telemetry, calibration, manual control ✅ (2026-10-18; in-game check pending)
+## Milestone 2 — Lua agent, pairing, telemetry, calibration, manual control ✅ (2026-10-18; confirmed in-game)
 
 **Implemented**
 
