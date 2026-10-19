@@ -54,6 +54,8 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 36. [ ] **Right-click menu:** select a turtle, right-click an open spot on the map (2D or 3D) → **Send … here**: it drives there through known space. Right-click a turtle: Pause / Resume / Details work. **New job starting here…** opens the job form with those coordinates.
 
+37. [ ] **Geo Scanner probe (Milestone 6, step A0):** equip a Geo Scanner on a turtle, stop the agent (Ctrl+T), type `lua`, and run `s = peripheral.find("geoScanner") print(textutils.serialise(s.scan(8)[1]))` and `print(s.cost(8), s.cost(16))`. Report what one entry looks like (fields, whether x/y/z are relative), whether air appears, and the costs. Then `reboot`.
+
 ### Chunky turtles (Chunk Controller)
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.

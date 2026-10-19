@@ -104,6 +104,7 @@ install ABCD-EFGH
 - [Minecraft setup](docs/minecraft-setup.md)
 - [In-game verification checklist](docs/in-game-checklist.md)
 - [Progress notes](docs/progress.md)
+- [Milestone 6 plan](docs/milestone-6.md)
 
 ## Milestones
 
@@ -112,4 +113,5 @@ install ABCD-EFGH
 3. ✅ One reliable tunnel job, automatic return, unloading and resume (confirmed in-game)
 4. ✅ Multi-turtle scheduling, groups, depot queues, collision handling (confirmed in-game)
 5. More strategies, formations, persistent 2D mapping (branch mine, grid mine, quarry, wall scanning, ore-vein following, ore search and the persistent map done and confirmed in-game; formations left)
-6. 3D view and optional mapping integrations (in progress: 3D view done)
+6. 3D view, Geo Scanner mapping and 3D view upgrades (in progress: 3D view done; plan in [docs/milestone-6.md](docs/milestone-6.md))
+7. Formations (splitting any job between turtles) and minimap waypoints (JourneyMap / Xaero)
