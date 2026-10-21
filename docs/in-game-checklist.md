@@ -58,6 +58,8 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 38. [ ] **3D overview:** in 3D, the inset at the top right shows the 3D area (cyan), your turtles and the depot. Click somewhere in it: the 3D area moves there. **Re-centre** goes back.
 
+39. [ ] **Progress and routes:** while a job runs, the dug part of its area is filled in 3D. Send a turtle somewhere (right-click → Send … here): a blue route runs ahead of it to a marked target, in 2D and 3D, and disappears when it arrives.
+
 ### Chunky turtles (Chunk Controller)
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.

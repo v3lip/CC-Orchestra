@@ -8,6 +8,7 @@ import { STATUS_COLOR, blockColor, shortItem, statusOf } from '../lib/status';
 import { type Visible, cellsIn, classify, surface } from '../lib/visible3d';
 import { MAX_INSTANCES, chunkOrder, chunkWork, lodFull } from '../lib/chunks';
 import { type Frame, fromInset, overviewFrame, toInset } from '../lib/overview';
+import { routeAhead, sectionProgress, splitSection } from '../lib/progress';
 
 /** Blocks loaded and drawn around the centre: ±R across, BELOW under and ABOVE over it. */
 const R = 128;
@@ -393,6 +394,12 @@ export default function MapView3D() {
       line.position.set((b.min.x + b.max.x + 1) / 2, (b.min.y + b.max.y + 1) / 2, (b.min.z + b.max.z + 1) / 2);
       s.overlays.add(line);
     };
+    const fill = (b: { min: Vec3; max: Vec3 }, col: string, opacity: number) => {
+      const g = new THREE.BoxGeometry(b.max.x - b.min.x + 1, b.max.y - b.min.y + 1, b.max.z - b.min.z + 1);
+      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity, depthWrite: false }));
+      m.position.set((b.min.x + b.max.x + 1) / 2, (b.min.y + b.max.y + 1) / 2, (b.min.z + b.max.z + 1) / 2);
+      s.overlays.add(m);
+    };
     const path = (cells: Vec3[], col: string) => {
       if (cells.length < 2) return;
       const g = new THREE.BufferGeometry().setFromPoints(cells.map((c) => new THREE.Vector3(c.x + 0.5, c.y + 0.5, c.z + 0.5)));
@@ -407,8 +414,19 @@ export default function MapView3D() {
       // A quarry's layers stack into one box: draw its outline once.
       const parts = j.strategy === 'quarry' && segs.length ? [segs.reduce((a, b) => ({ min: { x: Math.min(a.min.x, b.min.x), y: Math.min(a.min.y, b.min.y), z: Math.min(a.min.z, b.min.z) }, max: { x: Math.max(a.max.x, b.max.x), y: Math.max(a.max.y, b.max.y), z: Math.max(a.max.z, b.max.z) } }))] : segs;
       for (const b of parts) box(b, running ? '#22d3ee' : '#64748b', running ? 0.9 : 0.5);
+      // What's dug so far, filled in.
+      for (const { seg, done } of sectionProgress(j.segments ?? [], j.progress.unitsDone)) {
+        const dug = splitSection(seg, done).dug;
+        if (dug) fill(sectionBox(dug), running ? '#22d3ee' : '#94a3b8', 0.1);
+      }
       const pos = turtles[j.turtleId]?.state?.pose.pos;
-      if (running && j.route?.length) path(pos ? [pos, ...j.route] : j.route, '#facc15');
+      if (running) path(routeAhead(j.route, pos), '#facc15');
+    }
+    // Go-to trips: the route still ahead, and the target.
+    for (const t of Object.values(turtles)) {
+      if (!t.task || t.world !== world || t.dimension !== dimension) continue;
+      path(routeAhead(t.task.route, t.state?.pose.pos), '#38bdf8');
+      box({ min: t.task.target, max: t.task.target }, '#38bdf8', 0.8);
     }
     for (const seg of (jobDraft ?? []) as TunnelParams[]) box(sectionBox(seg), '#f59e0b');
     for (const d of Object.values(depots)) {

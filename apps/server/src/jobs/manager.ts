@@ -62,7 +62,7 @@ export class JobManager {
   private droppedAt = new Map<string, number>();
   /** Recent automatic resumes per job (for the 3-per-hour limit). */
   private autoResumes = new Map<string, number[]>();
-  private tasks = new Map<string, { id: string; target: Vec3; status: 'running' | 'stopping'; note?: string; reason?: string }>();
+  private tasks = new Map<string, { id: string; target: Vec3; status: 'running' | 'stopping'; note?: string; reason?: string; route?: Vec3[]; routeSent?: number }>();
   readonly traffic: Traffic;
   private pendingBroadcast = new Set<string>();
   private timer: NodeJS.Timeout;
@@ -97,7 +97,7 @@ export class JobManager {
     };
     fleet.hooks.taskOf = (id) => {
       const t = this.tasks.get(id);
-      return t && { kind: 'goto', target: t.target, note: t.note };
+      return t && { kind: 'goto', target: t.target, note: t.note, route: t.route };
     };
     fleet.hooks.jobOf = (id) => {
       const j = this.activeJobFor(id);
@@ -695,7 +695,7 @@ export class JobManager {
     const job = this.activeJobFor(turtleId);
     if (job && (job.view.status === 'running' || job.view.status === 'pausing')) throw new ApiError(409, `${t.name} is running job "${job.view.name}"; pause it first`);
     if (this.tasks.has(turtleId)) throw new ApiError(409, `${t.name} is already on its way somewhere`);
-    const task = { id: newId('g'), target, status: 'running' as 'running' | 'stopping', note: undefined as string | undefined, reason: undefined as string | undefined };
+    const task = { id: newId('g'), target, status: 'running' as 'running' | 'stopping', note: undefined as string | undefined, reason: undefined as string | undefined, route: undefined as Vec3[] | undefined, routeSent: 0 };
     this.tasks.set(turtleId, task);
     const touch = () => this.fleet.touchTurtle(turtleId);
     const mover = new Mover({
@@ -712,6 +712,14 @@ export class JobManager {
       onWait: (note) => {
         task.note = note;
         touch();
+      },
+      // The planned route, for the maps (like a job's); at most twice a second.
+      onRoute: (path) => {
+        task.route = path.slice(0, 64);
+        if (now() - (task.routeSent ?? 0) > 500) {
+          task.routeSent = now();
+          touch();
+        }
       },
       log: (level, msg) => this.log(level, msg, turtleId),
     });

@@ -5,6 +5,7 @@ import { mapCache, useFleet } from '../lib/store';
 import { api } from '../lib/api';
 import { STATUS_COLOR, blockColor, isChunky, shortItem, statusOf } from '../lib/status';
 import { isOreBlock } from '@ccfleet/protocol';
+import { routeAhead } from '../lib/progress';
 
 interface Camera {
   x: number; // block coords at the screen centre
@@ -160,7 +161,18 @@ export function MapView() {
         drawTunnel(ctx, seg, toSx, toSy, s, y, Math.max(0, Math.min(seg.length, done)), false);
         done -= seg.length;
       }
-      if (j.route?.length) drawRoute(ctx, j, toSx, toSy, y);
+      drawRoute(ctx, routeAhead(j.route, turtles[j.turtleId]?.state?.pose.pos), toSx, toSy, '#a3e635');
+    }
+    // Go-to trips: the route still ahead and the target.
+    for (const t of visibleTurtles) {
+      if (!t.task) continue;
+      drawRoute(ctx, routeAhead(t.task.route, t.state?.pose.pos), toSx, toSy, '#38bdf8');
+      const g = t.task.target;
+      ctx.save();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(toSx(g.x) + 1, toSy(g.z) + 1, s - 2, s - 2);
+      ctx.restore();
     }
     for (const d of jobDraft ?? []) drawTunnel(ctx, d, toSx, toSy, s, y, 0, true);
 
@@ -496,14 +508,15 @@ function drawTunnel(ctx: CanvasRenderingContext2D, p: TunnelParams, toSx: (x: nu
   ctx.restore();
 }
 
-function drawRoute(ctx: CanvasRenderingContext2D, j: JobView, toSx: (x: number) => number, toSy: (z: number) => number, y: number) {
+function drawRoute(ctx: CanvasRenderingContext2D, cells: { x: number; z: number }[], toSx: (x: number) => number, toSy: (z: number) => number, color: string) {
+  if (cells.length < 2) return;
   ctx.save();
-  ctx.strokeStyle = '#a3e635';
+  ctx.strokeStyle = color;
   ctx.setLineDash([2, 3]);
   ctx.lineWidth = 1.5;
   ctx.globalAlpha = 0.8;
   ctx.beginPath();
-  j.route!.forEach((c, i) => {
+  cells.forEach((c, i) => {
     const px = toSx(c.x + 0.5);
     const py = toSy(c.z + 0.5);
     if (i === 0) ctx.moveTo(px, py);
@@ -511,7 +524,6 @@ function drawRoute(ctx: CanvasRenderingContext2D, j: JobView, toSx: (x: number) 
   });
   ctx.stroke();
   ctx.restore();
-  void y;
 }
 
 function drawDepot(ctx: CanvasRenderingContext2D, d: DepotView, toSx: (x: number) => number, toSy: (z: number) => number, s: number, y: number) {

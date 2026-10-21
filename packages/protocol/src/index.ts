@@ -441,7 +441,8 @@ export interface TurtleView {
   /** The job controlling this turtle, if any. */
   job?: { id: string; name: string; status: JobStatus; phase: JobPhase };
   /** A one-off task such as "go to", if any. */
-  task?: { kind: 'goto'; target: Vec3; note?: string };
+  /** A go-to in progress, with its planned route (next cells, for the map). */
+  task?: { kind: 'goto'; target: Vec3; note?: string; route?: Vec3[] };
   lastSeen?: number;
   groupIds: string[];
   createdAt: number;

@@ -76,6 +76,16 @@ describe('head-on in a narrow corridor', () => {
     return { server, a, b };
   }
 
+  it('a go-to publishes its planned route for the maps', async () => {
+    const { server, a } = await setup(false);
+    server.jobs.goto(a.turtleId!, { x: 11, y: 100, z: 0 }); // (12 has the other turtle)
+    const route = await waitFor(() => server.fleet.getTurtle(a.turtleId!)?.task?.route, 10000, 'a route');
+    expect(route.length).toBeGreaterThan(5);
+    expect(route.at(-1)).toEqual({ x: 11, y: 100, z: 0 });
+    await waitFor(() => !server.jobs.taskRunning(a.turtleId!), 30000, 'arrival');
+    expect(server.fleet.getTurtle(a.turtleId!)?.task).toBeUndefined();
+  }, 60000);
+
   it('one turtle steps into the alcove and both get through; they never share a cell', async () => {
     const { server, a, b } = await setup(true);
     let clash = false;

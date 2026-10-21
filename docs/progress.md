@@ -1,5 +1,13 @@
 # Progress notes
 
+## Milestone 6, B4 — job progress and go-to routes on the maps (2026-10-21)
+
+- 3D: the part of each job section that's dug is drawn filled (faint cyan; grey while paused), the rest as the outline.
+- Go-to trips (Control → Go to…, right-click → Send here) now publish their planned route like jobs do; it's drawn in blue, with the target marked, on the 2D map and in 3D.
+- Routes are drawn from the turtle onwards: a route is published when it's planned, so the stretch already walked used to stay on the map.
+- Tests: route trimming, splitting a section at its progress, progress shared over sections, and the server publishing a go-to's route (ending at the target, cleared on arrival). Browser check on a sim instance: lanes' dug part filled in 3D, a go-to's blue route ahead of the turtle in 2D.
+
+
 ## Milestone 6, B3 — overview inset in the 3D view (2026-10-21)
 
 - A top-down overview in the 3D view's top-right corner: the 3D area (cyan frame), which chunks in it have mapped blocks, job areas, depots, turtles in their status colours (selected ones outlined) and the direction the camera looks. It zooms to fit every turtle and depot, never narrower than 384 blocks. Click it to move the 3D area there; **Overview on/off** in the toolbar hides it (remembered in the browser).
