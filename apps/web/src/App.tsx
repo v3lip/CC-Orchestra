@@ -249,8 +249,8 @@ function YSlider() {
       </button>
       <input
         type="range"
-        min={0}
-        max={255}
+        min={-64}
+        max={320}
         value={y}
         onChange={(e) => {
           setFollowY(false);
