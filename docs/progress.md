@@ -1,5 +1,12 @@
 # Progress notes
 
+## "Movement failed" in claimed chunks (2026-10-21)
+
+- In-game (FTB Evolution, 1.21.1): a turtle couldn't move into a chunk claimed with FTB Chunks; CC only said `Movement failed`, and unclaiming fixed it. CC: Tweaked's own checks (block, fuel, loaded chunk, its protected-area check) pass, then placing the turtle at the new cell is refused: that's the claim's protection against fake players (`fake_players: "check"`, team default "allow fake players" off).
+- The dashboard explains that error where it shows (command results, the turtle's last error), and a job that hits it pauses with the cell and the same advice. Setup doc: claims keep turtles out unless the team allows fake players.
+- The simulator can claim chunks (`world.claimedChunks`), failing moves into them the same way. Tests: the hint (only for that reason), and a tunnel stopping at the claimed chunk's edge with the advice in the job error.
+
+
 ## Instances: one per world or server (2026-10-21)
 
 - Turtles from another server used to land in the same map, jobs and depots as the old save. Every record already carried a world name; that is now an **instance** you choose: on the login screen (remembered instances plus **＋ New instance…**) or in the header (with live online/total counts). The fleet list, map, jobs and depots show the chosen one; new pairing codes go into it. All turtles stay connected whichever instance is shown; **STOP ALL** still stops every one.

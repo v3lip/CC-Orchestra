@@ -169,6 +169,20 @@ describe('tunnel job (TS agent)', () => {
     expect(world.get(5, 101, 0)?.name).toBe('minecraft:chest');
   });
 
+  it('a claimed chunk ("Movement failed") pauses the job with what to do about it', async () => {
+    const { server, world, depot } = await setup();
+    world.claimedChunks.add('1,0');
+    const t = await sim(server, world);
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 20 }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id);
+    expect(done.status).toBe('paused');
+    expect(done.error?.code).toBe('failed');
+    expect(done.error?.message).toContain('into (16 101 0) failed: Movement failed');
+    expect(done.error?.message).toContain('FTB Chunks');
+    expect(server.fleet.getTurtle(t.turtleId!)?.state?.pose.pos?.x).toBe(15);
+  });
+
   it('a result that never comes from a connected turtle pauses with that reason, not "went offline"', async () => {
     const { server, world, depot } = await setup();
     const t = await sim(server, world);

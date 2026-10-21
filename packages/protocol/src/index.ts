@@ -205,6 +205,18 @@ export function classifyReason(reason: string | undefined): ErrorCode {
   return 'failed';
 }
 
+/**
+ * What to do about a CC: Tweaked failure reason, when its text doesn't say. "Movement
+ * failed" means CC's own checks passed (no block, fuel, loaded chunk) but placing the
+ * turtle at the new cell was refused, which in practice is a claim mod's protection.
+ */
+export function reasonHint(reason: string | undefined): string | undefined {
+  const r = (reason ?? '').toLowerCase();
+  if (r.includes('movement failed'))
+    return "Usually a claimed chunk: a claim mod (e.g. FTB Chunks) won't let the turtle in. Allow fake players in your team's claim settings, or unclaim that chunk.";
+  return undefined;
+}
+
 // ---------------------------------------------------------------- envelopes
 
 const env = {

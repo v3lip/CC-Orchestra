@@ -4,7 +4,7 @@
  * resolution by stepping aside, gravel retries and re-planning. Used by jobs and by
  * go-to tasks.
  */
-import { type Box, type Heading, type MapBlock, type Op, type TurtleState, type Vec3, DEFAULT_PROTECTED_BLOCKS, HEADING_VECTORS } from '@ccfleet/protocol';
+import { type Box, type Heading, type MapBlock, type Op, type TurtleState, type Vec3, DEFAULT_PROTECTED_BLOCKS, HEADING_VECTORS, reasonHint } from '@ccfleet/protocol';
 import type { Fleet, StepResult } from '../fleet';
 import { eq, fmt, key } from './geometry';
 import { planPath, type NavContext } from './nav';
@@ -314,7 +314,10 @@ export class Mover {
           return true;
         }
         if (r.code === 'out_of_fuel') throw new JobError('out_of_fuel', 'The turtle ran out of fuel. Add fuel to it, then resume.');
-        if (r.code !== 'obstructed') throw new JobError(r.code ?? 'move_failed', `${moveOp} failed: ${r.reason}`);
+        if (r.code !== 'obstructed') {
+          const hint = reasonHint(r.reason);
+          throw new JobError(r.code ?? 'move_failed', `${moveOp} into ${fmt(next)} failed: ${r.reason}${hint ? `. ${hint}` : ''}`);
+        }
         // Obstructed: find out by what. If the map doesn't know, ask explicitly.
         const occupied = !!this.o.traffic.holder(this.o.turtleId, next);
         let after = this.known(next);

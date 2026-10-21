@@ -97,6 +97,8 @@ export class SimWorld {
   inventories = new Map<string, (SimItem | null)[]>();
   /** Items lost because a turtle had no free slot. */
   spilled = 0;
+  /** Chunks ("cx,cz") a claim mod protects: turtles can't move into them (CC says "Movement failed"). */
+  claimedChunks = new Set<string>();
 
   constructor(public seed = 1337) {}
 

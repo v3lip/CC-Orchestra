@@ -95,6 +95,7 @@ Options in your pack:
 
 - **Chunky turtles (recommended for jobs):** an Advanced Peripherals **Chunk Controller** on one side of the turtle (the other side keeps the pickaxe). Craft it into a turtle, or equip it on a free side. Details below.
 - **FTB Chunks** (installed): claim and force-load the mining area's chunks. This is per-team; check the force-load limits in its config. CC Fleet can't see these.
+  - **Claims keep turtles out.** A turtle counts as a *fake player*, and with FTB Chunks' defaults it can't enter or work in a claimed chunk: moves fail with CC's vague **`Movement failed`** (not "obstructed"), and a job pauses there. The dashboard now says so next to that error. Fix it in-game: open the FTB Chunks map → team settings and allow **fake players** for your team (claimed chunks stay protected from other players), or don't claim chunks the turtles work in. On a private world you can instead set `disable_protection: true` in `ftbchunks-world.snbt`, keeping claims for force-loading only.
 - **Stay nearby.**
 
 ### Chunky turtles (Advanced Peripherals 0.7.7.1r)

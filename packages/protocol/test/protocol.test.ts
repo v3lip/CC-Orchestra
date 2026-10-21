@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_MESSAGE_BYTES, classifyReason, parseOpArgs, parseTurtleMessage, stepFor, turned } from '../src/index';
+import { MAX_MESSAGE_BYTES, classifyReason, reasonHint, parseOpArgs, parseTurtleMessage, stepFor, turned } from '../src/index';
 
 const base = { v: 1, id: 'm1', ts: 0 };
 
@@ -36,5 +36,11 @@ describe('protocol', () => {
     expect(classifyReason('Out of fuel')).toBe('out_of_fuel');
     expect(classifyReason('Unbreakable block detected')).toBe('unbreakable');
     expect(classifyReason('Something new')).toBe('failed');
+  });
+
+  it('explains "Movement failed" (a claim mod), and only that', () => {
+    expect(reasonHint('Movement failed')).toContain('FTB Chunks');
+    expect(reasonHint('Movement obstructed')).toBeUndefined();
+    expect(reasonHint(undefined)).toBeUndefined();
   });
 });

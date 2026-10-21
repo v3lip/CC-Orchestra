@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { BatchItem } from '@ccfleet/protocol';
+import { type BatchItem, reasonHint } from '@ccfleet/protocol';
 import { useFleet } from '../lib/store';
 
 const TONE: Record<string, string> = {
@@ -74,6 +74,7 @@ export function ResultsPanel() {
             <span className="min-w-0 flex-1 text-dim">
               {i.code && <span className="num text-orange-300">[{i.code}] </span>}
               {i.reason ?? STATUS_HELP[i.status] ?? ''}
+              {reasonHint(i.reason) && <span className="block text-amber-200/80">{reasonHint(i.reason)}</span>}
               {i.data && <span className="num block truncate text-slate-400">{JSON.stringify(i.data)}</span>}
             </span>
           </li>

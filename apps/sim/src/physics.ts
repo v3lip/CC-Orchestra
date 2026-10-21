@@ -22,6 +22,8 @@ export function move(world: SimWorld, body: TurtleBody, op: MoveOp): { ok: true 
   if (to.y > 255) return { ok: false, reason: 'Too high to move' };
   if (to.y < 0) return { ok: false, reason: 'Too low to move' };
   if (!world.passable(to)) return { ok: false, reason: 'Movement obstructed' };
+  // CC's checks passed, but the claim mod refuses the turtle block at the new cell.
+  if (world.claimedChunks.has(`${Math.floor(to.x / 16)},${Math.floor(to.z / 16)}`)) return { ok: false, reason: 'Movement failed' };
   world.moveOccupant(body, to);
   if (body.fuel !== 'unlimited') body.fuel -= 1;
   return { ok: true };

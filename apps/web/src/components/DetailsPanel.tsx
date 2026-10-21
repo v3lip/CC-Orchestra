@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { TurtleView } from '@ccfleet/protocol';
+import { type TurtleView, reasonHint } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { runBatch, useFleet } from '../lib/store';
 import { HEADING_SHORT, STATUS_COLOR, STATUS_LABEL, ago, chunkOf, fuelFraction, isChunky, shortItem, statusOf } from '../lib/status';
@@ -161,6 +161,7 @@ export function DetailsPanel() {
           <div className="mt-1 rounded border border-red-900/60 bg-red-950/30 p-1.5 text-red-200">
             Last error <span className="num">[{st.lastError.code}]</span> {st.lastError.message}
             {st.lastError.at && <span className="text-red-300/60"> · {ago(st.lastError.at)}</span>}
+            {reasonHint(st.lastError.message) && <span className="mt-0.5 block text-amber-200/90">{reasonHint(st.lastError.message)}</span>}
           </div>
         )}
       </Section>
