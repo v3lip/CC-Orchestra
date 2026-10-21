@@ -9,6 +9,8 @@ import { type Visible, cellsIn, classify, surface } from '../lib/visible3d';
 import { MAX_INSTANCES, chunkOrder, chunkWork, lodFull } from '../lib/chunks';
 import { type Frame, fromInset, overviewFrame, toInset } from '../lib/overview';
 import { routeAhead, sectionProgress, splitSection } from '../lib/progress';
+import { followStep, needsRecentre } from '../lib/follow';
+import { isTyping, view3dAction } from '../lib/keys';
 
 /** Blocks loaded and drawn around the centre: ±R across, BELOW under and ABOVE over it. */
 const R = 128;
@@ -54,6 +56,8 @@ interface Scene {
   /** Shared by all chunk meshes; replaced when x-ray changes. */
   materials?: Materials;
   turtleMeshes: THREE.Object3D[];
+  /** Following a turtle: the point the camera glides towards. */
+  followGoal?: THREE.Vector3;
   labels: Map<string, { el: HTMLDivElement; pos: THREE.Vector3 }>;
 }
 
@@ -150,6 +154,23 @@ export default function MapView3D() {
   const [hover, setHover] = useState<{ block: MapBlock; sx: number; sy: number }>();
   const [xray, setXray] = useState(false);
   const [cut, setCut] = useState(true);
+  const [follow, setFollow] = useState(() => {
+    try {
+      return localStorage.getItem('ccf.follow3d') === 'on';
+    } catch {
+      return false;
+    }
+  });
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  const setFollowSaved = (on: boolean) => {
+    setFollow(on);
+    try {
+      localStorage.setItem('ccf.follow3d', on ? 'on' : 'off');
+    } catch {
+      /* private mode: just not remembered */
+    }
+  };
   const [stats, setStats] = useState({ blocks: 0, ores: 0, capped: 0, building: 0 });
 
   const world = useFleet((s) => s.world);
@@ -225,6 +246,8 @@ export default function MapView3D() {
     const v = new THREE.Vector3();
     const loop = () => {
       raf = requestAnimationFrame(loop);
+      const goal = s3.current?.followGoal;
+      if (goal && (followStep(controls.target, camera.position, goal).x !== 0 || controls.target.distanceTo(goal) > 0.01)) drawOverview.current();
       controls.update();
       renderer.render(scene, camera);
       // HTML name tags follow their turtles.
@@ -260,6 +283,40 @@ export default function MapView3D() {
     s.controls.target.copy(target);
     s.camera.position.copy(target).add(offset);
   }, [center]);
+
+  // ------------------------------------------------------------------ follow
+
+  const followed = focusId ?? selection[0];
+  const followPos = followed ? turtles[followed]?.state?.pose.pos : undefined;
+  useEffect(() => {
+    const s = s3.current;
+    if (!s) return;
+    if (!follow || !followPos || turtles[followed!]?.world !== world) {
+      s.followGoal = undefined;
+      return;
+    }
+    s.followGoal = new THREE.Vector3(followPos.x + 0.5, followPos.y + 0.5, followPos.z + 0.5);
+    if (needsRecentre(center, followPos, R)) setCenter({ ...followPos });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow, followed, followPos?.x, followPos?.y, followPos?.z, world]);
+
+  // Keyboard shortcuts of the 3D view.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e)) return;
+      const a = view3dAction(e.key);
+      if (!a) return;
+      e.preventDefault();
+      if (a === 'xray') setXray((v) => !v);
+      else if (a === 'cut') setCut((v) => !v);
+      else if (a === 'follow') setFollowSaved(!followRef.current);
+      else if (a === 'overview') toggleOverview();
+      else if (a === 'recentre') setCenter(initial());
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ------------------------------------------------------------------ blocks
 
@@ -621,6 +678,8 @@ export default function MapView3D() {
   const pickBlock = (e: React.PointerEvent | React.MouseEvent) => pickHit(e)?.block;
   const down = useRef<{ x: number; y: number } | undefined>(undefined);
   const onMove = (e: React.PointerEvent) => {
+    const d = down.current;
+    if (e.buttons & 2 && d && followRef.current && Math.abs(d.x - e.clientX) + Math.abs(d.y - e.clientY) > 4) setFollowSaved(false);
     if (e.buttons) return setHover(undefined);
     const b = pickBlock(e);
     const r = wrapRef.current!.getBoundingClientRect();
@@ -681,16 +740,23 @@ export default function MapView3D() {
         />
       )}
       <div className="absolute left-3 top-3 flex flex-wrap items-center gap-1 rounded bg-black/60 px-2 py-1 text-[10px] text-dim">
-        <button onClick={() => setXray(!xray)} className={`rounded border px-2 py-0.5 ${xray ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge text-dim'}`} title="Fade ordinary blocks so ores and tunnels stand out">
+        <button onClick={() => setXray(!xray)} className={`rounded border px-2 py-0.5 ${xray ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge text-dim'}`} title="Fade ordinary blocks so ores and tunnels stand out (X)">
           X-ray {xray ? 'on' : 'off'}
         </button>
-        <button onClick={() => setCut(!cut)} className={`rounded border px-2 py-0.5 ${cut ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge text-dim'}`} title="Hide everything above the Y level (the slider on the right)">
+        <button onClick={() => setCut(!cut)} className={`rounded border px-2 py-0.5 ${cut ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge text-dim'}`} title="Hide everything above the Y level, the slider on the right (C)">
           Cut above Y {y}
         </button>
-        <button onClick={() => setCenter(initial())} className="rounded border border-edge px-2 py-0.5 text-dim hover:text-ink" title="Centre on the focused turtle">
+        <button onClick={() => setCenter(initial())} className="rounded border border-edge px-2 py-0.5 text-dim hover:text-ink" title="Centre on the focused turtle (H)">
           Re-centre
         </button>
-        <button onClick={toggleOverview} className={`rounded border px-2 py-0.5 ${showOverview ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge text-dim'}`} title="Show or hide the top-down overview">
+        <button
+          onClick={() => setFollowSaved(!follow)}
+          className={`rounded border px-2 py-0.5 ${follow ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge text-dim'}`}
+          title={`Keep the camera on the focused turtle as it moves; right-drag to look elsewhere stops it (G)${followed ? '' : '. Select a turtle first.'}`}
+        >
+          Follow {follow ? (followed ? turtles[followed]?.name ?? 'on' : 'on') : 'off'}
+        </button>
+        <button onClick={toggleOverview} className={`rounded border px-2 py-0.5 ${showOverview ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge text-dim'}`} title="Show or hide the top-down overview (O)">
           Overview {showOverview ? 'on' : 'off'}
         </button>
         <span className="ml-1 font-mono">
@@ -705,7 +771,7 @@ export default function MapView3D() {
         </span>
       </div>
       <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-black/55 px-2 py-1 font-mono text-[10px] text-dim">
-        left-drag: orbit · right-drag: pan · right-click: menu · wheel: zoom · click: select turtle · double-click: look at block
+        left-drag: orbit · right-drag: pan · right-click: menu · wheel: zoom · click: select turtle · double-click: look at block · keys: X x-ray, C cut, G follow, O overview, H re-centre
       </div>
       {hover && (
         <div className="pointer-events-none absolute rounded bg-black/80 px-2 py-1 text-[11px] text-ink" style={{ left: hover.sx + 14, top: hover.sy + 10 }}>

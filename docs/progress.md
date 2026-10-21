@@ -1,5 +1,13 @@
 # Progress notes
 
+## Milestone 6, B5 — follow camera and 3D shortcuts (2026-10-21)
+
+- **Follow** (3D toolbar, or G): the camera stays on the focused turtle (else the first selected), gliding along at the same viewing angle; the 3D area re-centres when the turtle leaves its middle. Right-drag panning stops following. Remembered in the browser.
+- Keys in the 3D view: **X** x-ray, **C** cut above Y, **G** follow, **O** overview, **H** re-centre. They never overlap the turtle-driving keys (W/A/S/D/R/F, Escape) and are ignored while typing; the driving keys now live in the same module (`lib/keys.ts`), with a test that they can't clash.
+- Tests: key map (no clash, case-insensitive, ignored while typing), follow smoothing (target and camera move together and settle), when the area re-centres. Browser check on a sim instance: X/C/G/O toggle, typing "xcgo" in the search box toggles nothing, the camera stays on a turtle during a go-to, no console errors.
+- That completes Part B of Milestone 6 (3D view upgrades) in the simulator; Part A (Geo Scanner) waits for the in-game probe.
+
+
 ## Milestone 6, B4 — job progress and go-to routes on the maps (2026-10-21)
 
 - 3D: the part of each job section that's dug is drawn filled (faint cyan; grey while paused), the rest as the outline.

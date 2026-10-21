@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { Op } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { runBatch, useFleet } from '../lib/store';
+import { DRIVE_KEYS, isTyping } from '../lib/keys';
 import { STATUS_COLOR, statusOf } from '../lib/status';
 
 /**
@@ -21,18 +22,11 @@ export function CommandBar() {
 
   // Keyboard driving for the current selection (ignored while typing).
   useEffect(() => {
-    const keys: Record<string, Op> = { w: 'forward', s: 'back', a: 'turnLeft', d: 'turnRight', r: 'up', f: 'down' };
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement;
-      const typing =
-        el.tagName === 'TEXTAREA' ||
-        el.tagName === 'SELECT' ||
-        el.isContentEditable ||
-        (el instanceof HTMLInputElement && !['checkbox', 'radio', 'range', 'button'].includes(el.type));
-      if (typing || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if (isTyping(e)) return;
       const sel = useFleet.getState().selection;
       if (e.key === 'Escape') return useFleet.getState().select([]);
-      const op = keys[e.key.toLowerCase()];
+      const op = DRIVE_KEYS[e.key.toLowerCase()];
       if (op && sel.length) {
         e.preventDefault();
         runBatch(api.command({ turtleIds: sel }, op));

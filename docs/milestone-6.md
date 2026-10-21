@@ -89,8 +89,8 @@ Moved to a later milestone: formations (splitting branch/grid/quarry jobs betwee
 | B2 ✅ | Level of detail and instance cap | benchmark with a dense mapped area; toolbar shows reduced detail. **Done 2026-10-20:** full detail within 3 chunks of the centre, top surface + ores + water beyond; cap 200 000 blocks (nearest chunks keep full detail, toolbar says how many were reduced); full rebuilds run nearest first, ~10 ms per frame. Fully mapped 256×256×40: near chunks on screen after 0.8 s, all after 1.8 s with the page responsive (was 2.5 s frozen), 104 000 blocks drawn (was 170 000) |
 | B3 ✅ | Overview inset | browser check: click moves the 3D box. **Done 2026-10-21:** top-down inset (top right of the 3D view, a third of the view's shorter side, 90–180 px, can be hidden): the 3D area (cyan), mapped chunks in it, job areas, depots, turtles (status colours, selected outlined) and the camera direction; zooms to fit all turtles and depots (at least 384 blocks). Clicking moves the 3D area there |
 | B4 ✅ | Job progress in 3D, go-to routes | browser check on a sim instance with a running job. **Done 2026-10-21:** the dug part of each job section is drawn filled in 3D; go-to trips publish their planned route (server → turtle `task.route`), drawn in blue with the target in 2D and 3D; routes (jobs and go-tos) are drawn only from the turtle onwards |
-| B5 | Follow-camera, shortcuts | browser check |
-| B6 | Docs, checklist | user confirms in-game |
+| B5 ✅ | Follow-camera, shortcuts | browser check. **Done 2026-10-21:** **Follow** keeps the camera on the focused (else first selected) turtle, gliding with it at the same angle, and moves the 3D area when it leaves the middle; right-drag panning stops it. Keys in 3D: X x-ray, C cut, G follow, O overview, H re-centre (never W/A/S/D/R/F, which drive turtles; ignored while typing) |
+| B6 | Docs, checklist | docs and checklist steps 38–40 written; **waiting for the user to confirm in-game** |
 
 ---
 
