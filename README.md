@@ -10,6 +10,7 @@ Pair your turtles once, then run them from your browser: a live map of everythin
 ![CC: Tweaked](https://img.shields.io/badge/CC%3A%20Tweaked-1.100%2B-f0c040)
 ![Node.js 22.13+](https://img.shields.io/badge/Node.js-22.13%2B-339933)
 ![Self-hosted](https://img.shields.io/badge/self--hosted-no%20cloud-0e7490)
+[![MIT license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ![The CC Fleet dashboard: three turtles sharing a quarry, with ore finds and the ore overlay](docs/screenshots/overview.png)
 
@@ -256,3 +257,7 @@ Everything marked done has been checked in-game with [the verification checklist
 - [Architecture and mining strategies](docs/architecture.md)
 - [Wire protocol](docs/protocol.md)
 - [Progress notes](docs/progress.md)
+
+## License
+
+[MIT](LICENSE): free to use, modify and share, including in your own modpacks and servers. Keep the copyright notice.

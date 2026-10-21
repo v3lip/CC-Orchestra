@@ -1,6 +1,7 @@
 {
   "name": "cc-fleet",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
