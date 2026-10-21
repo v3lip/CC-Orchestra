@@ -7,6 +7,7 @@ import { mapCache, useFleet } from '../lib/store';
 import { STATUS_COLOR, blockColor, shortItem, statusOf } from '../lib/status';
 import { type Visible, cellsIn, classify, surface } from '../lib/visible3d';
 import { MAX_INSTANCES, chunkOrder, chunkWork, lodFull } from '../lib/chunks';
+import { type Frame, fromInset, overviewFrame, toInset } from '../lib/overview';
 
 /** Blocks loaded and drawn around the centre: ±R across, BELOW under and ABOVE over it. */
 const R = 128;
@@ -31,6 +32,10 @@ function colorOf(b: MapBlock): THREE.Color {
 
 /** Map updates arrive up to 10 times a second while turtles work: rebuild at most this often. */
 const MAP_REBUILD_MS = 300;
+/** Size of the overview inset: a third of the view's shorter side, within these bounds (CSS pixels). */
+const OVERVIEW_MIN = 90;
+const OVERVIEW_MAX = 180;
+const overviewSize = (w: number, h: number) => Math.round(Math.max(OVERVIEW_MIN, Math.min(OVERVIEW_MAX, Math.min(w, h) / 3)));
 /** Time a full rebuild may take per animation frame. */
 const FRAME_BUDGET_MS = 10;
 /** Outline of one ore block, reused for every ore. */
@@ -193,6 +198,7 @@ export default function MapView3D() {
     controls.enableDamping = true;
     controls.dampingFactor = 0.15;
     controls.screenSpacePanning = true;
+    controls.addEventListener('change', () => drawOverview.current());
     scene.add(new THREE.HemisphereLight('#dbe7ff', '#202430', 1.6));
     const sun = new THREE.DirectionalLight('#ffffff', 1.6);
     sun.position.set(0.6, 1, 0.35);
@@ -206,6 +212,7 @@ export default function MapView3D() {
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
       renderer.setSize(w, h);
+      setOvPx(overviewSize(w, h));
       camera.aspect = w / Math.max(1, h);
       camera.updateProjectionMatrix();
     };
@@ -458,6 +465,120 @@ export default function MapView3D() {
 
   // ------------------------------------------------------------------ mouse
 
+  // ------------------------------------------------------------------ overview inset
+
+  const overviewRef = useRef<HTMLCanvasElement>(null);
+  const [ovPx, setOvPx] = useState(OVERVIEW_MAX);
+  const [showOverview, setShowOverview] = useState(() => {
+    try {
+      return localStorage.getItem('ccf.overview3d') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const toggleOverview = () => {
+    setShowOverview((v) => {
+      try {
+        localStorage.setItem('ccf.overview3d', v ? 'off' : 'on');
+      } catch {
+        /* private mode: just not remembered */
+      }
+      return !v;
+    });
+  };
+  const frameRef = useRef<Frame | undefined>(undefined);
+  const drawOverview = useRef<() => void>(() => {});
+  drawOverview.current = () => {
+    const canvas = overviewRef.current;
+    const s = s3.current;
+    if (!canvas || !s) return;
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    if (canvas.width !== ovPx * dpr) {
+      canvas.width = ovPx * dpr;
+      canvas.height = ovPx * dpr;
+    }
+    const ctx = canvas.getContext('2d')!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const box = { x0: center.x - R, x1: center.x + R, z0: center.z - R, z1: center.z + R };
+    const here = Object.values(turtles).filter((t) => t.world === world && t.dimension === dimension && t.state?.pose.pos);
+    const docks = Object.values(depots).filter((d) => d.world === world && d.dimension === dimension);
+    const f = overviewFrame(box, [...here.map((t) => t.state!.pose.pos!), ...docks.map((d) => d.dock)]);
+    frameRef.current = f;
+    const at = (x: number, z: number) => toInset(f, ovPx, x, z);
+    const rect = (x0: number, z0: number, x1: number, z1: number) => {
+      const a = at(x0, z0);
+      const b = at(x1 + 1, z1 + 1);
+      return [a.px, a.py, b.px - a.px, b.py - a.py] as const;
+    };
+    ctx.clearRect(0, 0, ovPx, ovPx);
+    ctx.fillStyle = 'rgba(7, 11, 18, 0.88)';
+    ctx.fillRect(0, 0, ovPx, ovPx);
+    // Chunks in the 3D area that have something mapped.
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
+    for (const [k, c] of s.chunks) {
+      if (!c.blocks) continue;
+      const [cx, cz] = k.split(',').map(Number);
+      ctx.fillRect(...rect(cx * 16, cz * 16, cx * 16 + 15, cz * 16 + 15));
+    }
+    // Job areas.
+    for (const j of Object.values(jobs)) {
+      if (j.world !== world || j.dimension !== dimension || j.status === 'completed' || j.status === 'cancelled') continue;
+      ctx.strokeStyle = j.status === 'running' || j.status === 'pausing' ? 'rgba(34, 211, 238, 0.8)' : 'rgba(100, 116, 139, 0.8)';
+      ctx.lineWidth = 1;
+      for (const seg of j.segments ?? []) {
+        const b = sectionBox(seg);
+        ctx.strokeRect(...rect(b.min.x, b.min.z, b.max.x, b.max.z));
+      }
+    }
+    // The 3D area.
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(...rect(box.x0, box.z0, box.x1, box.z1));
+    // Depots and turtles.
+    for (const d of docks) {
+      const p = at(d.dock.x + 0.5, d.dock.z + 0.5);
+      ctx.fillStyle = '#4ade80';
+      ctx.fillRect(p.px - 2.5, p.py - 2.5, 5, 5);
+    }
+    for (const t of here) {
+      const pos = t.state!.pose.pos!;
+      const p = at(pos.x + 0.5, pos.z + 0.5);
+      ctx.beginPath();
+      ctx.arc(p.px, p.py, 3, 0, Math.PI * 2);
+      ctx.fillStyle = STATUS_COLOR[statusOf(t)];
+      ctx.fill();
+      if (selection.includes(t.id)) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    // Where the camera looks.
+    const dir = s.controls.target.clone().sub(s.camera.position);
+    const len = Math.hypot(dir.x, dir.z);
+    if (len > 0.01) {
+      const c = at(s.controls.target.x, s.controls.target.z);
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(c.px - (dir.x / len) * 10, c.py - (dir.z / len) * 10);
+      ctx.lineTo(c.px + (dir.x / len) * 8, c.py + (dir.z / len) * 8);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '10px system-ui';
+    ctx.fillText('N', ovPx / 2 - 3, 11);
+    ctx.fillText(`${Math.round(f.half * 2)} m`, 4, ovPx - 4);
+  };
+  useEffect(() => drawOverview.current(), [center, turtles, depots, jobs, selection, stats, world, dimension, ovPx, showOverview]);
+  const onOverviewClick = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const f = frameRef.current;
+    if (!f) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const p = fromInset(f, ovPx, ((e.clientX - r.left) / r.width) * ovPx, ((e.clientY - r.top) / r.height) * ovPx);
+    setCenter((c) => ({ x: p.x, y: c.y, z: p.z }));
+  };
+
   const ray = useRef(new THREE.Raycaster());
   const pick = (e: React.PointerEvent | React.MouseEvent) => {
     const s = s3.current!;
@@ -532,6 +653,15 @@ export default function MapView3D() {
         onDoubleClick={onDouble}
       />
       <div ref={labelRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
+      {showOverview && (
+        <canvas
+          ref={overviewRef}
+          onPointerDown={onOverviewClick}
+          className="absolute right-3 top-3 cursor-crosshair rounded border border-edge shadow-lg shadow-black/50"
+          style={{ width: ovPx, height: ovPx }}
+          title="Overview: the cyan frame is the 3D area. Click to move it there."
+        />
+      )}
       <div className="absolute left-3 top-3 flex flex-wrap items-center gap-1 rounded bg-black/60 px-2 py-1 text-[10px] text-dim">
         <button onClick={() => setXray(!xray)} className={`rounded border px-2 py-0.5 ${xray ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge text-dim'}`} title="Fade ordinary blocks so ores and tunnels stand out">
           X-ray {xray ? 'on' : 'off'}
@@ -541,6 +671,9 @@ export default function MapView3D() {
         </button>
         <button onClick={() => setCenter(initial())} className="rounded border border-edge px-2 py-0.5 text-dim hover:text-ink" title="Centre on the focused turtle">
           Re-centre
+        </button>
+        <button onClick={toggleOverview} className={`rounded border px-2 py-0.5 ${showOverview ? 'border-sky-600 bg-sky-950/70 text-sky-200' : 'border-edge text-dim'}`} title="Show or hide the top-down overview">
+          Overview {showOverview ? 'on' : 'off'}
         </button>
         <span className="ml-1 font-mono">
           {stats.blocks} blocks · {stats.ores} ores · centre {center.x} {center.y} {center.z}

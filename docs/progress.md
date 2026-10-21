@@ -1,5 +1,12 @@
 # Progress notes
 
+## Milestone 6, B3 — overview inset in the 3D view (2026-10-21)
+
+- A top-down overview in the 3D view's top-right corner: the 3D area (cyan frame), which chunks in it have mapped blocks, job areas, depots, turtles in their status colours (selected ones outlined) and the direction the camera looks. It zooms to fit every turtle and depot, never narrower than 384 blocks. Click it to move the 3D area there; **Overview on/off** in the toolbar hides it (remembered in the browser).
+- Its size follows the view (a third of the shorter side, 90–180 px): a fixed 180 px covered most of a small window.
+- Tests: framing (minimum range, widening to fit far turtles, chunk-rounded) and click-to-block round trip. Browser check on a sim instance at 1600×1000: inset drawn, a click moved the centre from 1 −9 to 146 −150, hide/show and Re-centre work, no console errors.
+
+
 ## Milestone 6, B2 — level of detail in the 3D view (2026-10-20)
 
 - Chunks within 3 chunks of the centre are drawn in full; farther chunks show each column's top block, water on top, and every ore. At most 200 000 blocks are drawn: past that, near chunks fall back to their surface (nearest keep full detail) and the toolbar says "detail reduced in N chunks".

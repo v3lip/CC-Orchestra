@@ -56,6 +56,8 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 37. [ ] **Geo Scanner probe (Milestone 6, step A0):** equip a Geo Scanner on a turtle, stop the agent (Ctrl+T), type `lua`, and run `s = peripheral.find("geoScanner") print(textutils.serialise(s.scan(8)[1]))` and `print(s.cost(8), s.cost(16))`. Report what one entry looks like (fields, whether x/y/z are relative), whether air appears, and the costs. Then `reboot`.
 
+38. [ ] **3D overview:** in 3D, the inset at the top right shows the 3D area (cyan), your turtles and the depot. Click somewhere in it: the 3D area moves there. **Re-centre** goes back.
+
 ### Chunky turtles (Chunk Controller)
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.
