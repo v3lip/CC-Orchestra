@@ -564,6 +564,51 @@ export class JobManager {
     this.fleet.touchTurtle(job.view.turtleId);
   }
 
+  // ------------------------------------------------------------------ instances (worlds)
+
+  /** Is a job or go-to running in this world? (Renaming or deleting it must wait.) */
+  worldBusy(world: string): boolean {
+    if ([...this.jobs.values()].some((j) => j.view.world === world && (j.view.status === 'running' || j.view.status === 'pausing'))) return true;
+    return [...this.tasks.keys()].some((id) => this.fleet.getTurtle(id)?.world === world);
+  }
+
+  /** Move a world's depots, jobs and marked chunks to another name. */
+  renameWorld(from: string, to: string): void {
+    for (const d of this.depots.values()) {
+      if (d.world !== from) continue;
+      d.world = to;
+      this.db.prepare('UPDATE depots SET data_json=? WHERE id=?').run(JSON.stringify(d), d.id);
+      this.fleet.broadcast({ type: 'depot', depot: { ...d, lockedBy: this.dockLocks.get(d.id) } });
+    }
+    for (const j of this.jobs.values()) {
+      if (j.view.world !== from) continue;
+      j.view.world = to;
+      this.save(j);
+    }
+    this.db.prepare('UPDATE OR REPLACE forced_chunks SET world=? WHERE world=?').run(to, from);
+    this.fleet.broadcast({ type: 'forced_chunks', chunks: this.listForced() });
+  }
+
+  /** Delete a world's jobs, depots and marked chunks (nothing may be running there). */
+  deleteWorld(world: string): void {
+    for (const j of [...this.jobs.values()]) {
+      if (j.view.world !== world) continue;
+      this.jobs.delete(j.view.id);
+      this.db.prepare('DELETE FROM jobs WHERE id=?').run(j.view.id);
+      this.fleet.broadcast({ type: 'job_removed', id: j.view.id });
+    }
+    for (const d of [...this.depots.values()]) {
+      if (d.world !== world) continue;
+      this.depots.delete(d.id);
+      this.dockLocks.delete(d.id);
+      this.spotClaims.delete(d.id);
+      this.db.prepare('DELETE FROM depots WHERE id=?').run(d.id);
+      this.fleet.broadcast({ type: 'depot_removed', id: d.id });
+    }
+    this.db.prepare('DELETE FROM forced_chunks WHERE world=?').run(world);
+    this.fleet.broadcast({ type: 'forced_chunks', chunks: this.listForced() });
+  }
+
   // ------------------------------------------------------------------ automatic resume
 
   static readonly AUTO_RESUME_WINDOW_MS = 15 * 60_000;

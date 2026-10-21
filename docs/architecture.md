@@ -22,6 +22,8 @@
 
 **Offline ≠ gone.** An offline turtle keeps its last known position on the map, drawn as a dashed "still an obstacle" marker. Milestone 4's reservation system will treat it as occupied until it reports in.
 
+**Instances = worlds.** Everything is tagged with a world name (turtles, map, jobs, depots, marked chunks); an *instance* is that name made first-class (`apps/server/src/instances.ts`, `GET/POST /api/instances`, `PATCH`/`DELETE /api/instances/:name`). One database holds every instance and all turtles stay connected at once; the dashboard shows the one chosen in that browser (localStorage), and new pairing codes go into it. Rename moves all of an instance's data, refused while a job or go-to runs there; delete unpairs its turtles and drops its data, refused while any of them is online.
+
 **Map = observations only.** A row exists only for cells actually seen (inspected or moved into). Absent = unknown, which is drawn differently from known air. Data is stored per (world, dimension, x, z, y). The dashboard loads it per 16×16 chunk and 16-block Y band, then receives incremental deltas.
 
 ## Packages

@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { api, setUnauthorizedHandler } from './lib/api';
-import { connectLive, disconnectLive, runBatch, useFleet } from './lib/store';
+import { connectLive, disconnectLive, knownInstances, rememberInstance, runBatch, savedInstance, useFleet } from './lib/store';
+import { InstancePicker } from './components/InstancePicker';
 import { MapView } from './components/MapView';
 import { FleetList } from './components/FleetList';
 import { DetailsPanel } from './components/DetailsPanel';
@@ -33,6 +34,10 @@ export function App() {
 function Login({ onDone }: { onDone: () => void }) {
   const [pw, setPw] = useState('');
   const [err, setErr] = useState<string>();
+  // Which instance to open: the ones this browser has used (the server's list needs a login).
+  const known = knownInstances();
+  const [inst, setInst] = useState(savedInstance() ?? known[0] ?? 'main');
+  const [newName, setNewName] = useState('');
   return (
     <div className="grid h-full place-items-center bg-[radial-gradient(ellipse_at_top,#0b2a3a,transparent_60%)]">
       <form
@@ -41,6 +46,13 @@ function Login({ onDone }: { onDone: () => void }) {
           e.preventDefault();
           try {
             await api.login(pw);
+            const name = inst === '+new' ? newName.trim() : inst;
+            if (inst === '+new') {
+              if (!name) return setErr('Name the new instance');
+              await api.createInstance(name);
+            }
+            rememberInstance(name);
+            useFleet.getState().setInstance(name);
             onDone();
           } catch (e2) {
             setErr((e2 as Error).message);
@@ -52,6 +64,18 @@ function Login({ onDone }: { onDone: () => void }) {
           <p className="text-xs text-dim">Turtle fleet control</p>
         </div>
         <input type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Dashboard password" className="w-full rounded border border-edge bg-panel-2 px-2 py-1.5 text-sm" />
+        <label className="block text-[11px] text-dim">
+          Instance (Minecraft world or server)
+          <select value={inst} onChange={(e) => setInst(e.target.value)} className="mt-0.5 w-full rounded border border-edge bg-panel-2 px-2 py-1.5 text-sm text-ink">
+            {[...new Set([inst === '+new' ? 'main' : inst, ...known])].map((n) => (
+              <option key={n} value={n}>
+                {n === 'sim' ? 'sim (simulated)' : n}
+              </option>
+            ))}
+            <option value="+new">＋ New instance…</option>
+          </select>
+        </label>
+        {inst === '+new' && <input value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={40} placeholder="Name, e.g. the server or save" className="w-full rounded border border-edge bg-panel-2 px-2 py-1.5 text-sm" />}
         {err && <p className="text-xs text-red-300">{err}</p>}
         <button className="w-full rounded bg-cyan-600 py-1.5 text-sm font-semibold text-slate-950 hover:bg-cyan-500">Log in</button>
         <p className="text-[11px] text-slate-600">The password is ADMIN_PASSWORD in the backend's .env.</p>
@@ -91,7 +115,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         <span className="num text-xs text-dim">
           {counts.online}/{counts.total} online{counts.sim ? ` · ${counts.sim} simulated` : ''}
         </span>
-        <WorldPicker />
+        <InstancePicker />
         <GoTo />
         <div className="ml-auto flex items-center gap-2">
           <button
@@ -170,35 +194,6 @@ function LiveBadge({ live }: { live: 'connecting' | 'live' | 'down' }) {
   );
 }
 
-function WorldPicker() {
-  const turtles = useFleet((s) => s.turtles);
-  const world = useFleet((s) => s.world);
-  const dimension = useFleet((s) => s.dimension);
-  const setWorld = useFleet((s) => s.setWorld);
-  const options = useMemo(() => {
-    const set = new Map<string, { world: string; dimension: string }>();
-    set.set(`${world}|${dimension}`, { world, dimension });
-    for (const t of Object.values(turtles)) set.set(`${t.world}|${t.dimension}`, { world: t.world, dimension: t.dimension });
-    return [...set.values()];
-  }, [turtles, world, dimension]);
-  return (
-    <select
-      value={`${world}|${dimension}`}
-      onChange={(e) => {
-        const [w, d] = e.target.value.split('|');
-        setWorld(w, d);
-      }}
-      className="rounded border border-edge bg-panel-2 px-1 py-0.5 text-xs"
-      title="World and dimension shown on the map"
-    >
-      {options.map((o) => (
-        <option key={`${o.world}|${o.dimension}`} value={`${o.world}|${o.dimension}`}>
-          {o.world === 'sim' ? 'sim (simulated)' : o.world} · {o.dimension.replace('minecraft:', '')}
-        </option>
-      ))}
-    </select>
-  );
-}
 
 /** "x z", "x y z" or a turtle name. */
 function GoTo() {

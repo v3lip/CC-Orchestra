@@ -62,6 +62,12 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 40. [ ] **Follow and keys:** select a turtle that's working, open 3D, press **G**: the camera stays on it as it moves. Right-drag stops following. **X**, **C**, **O**, **H** toggle x-ray, cut, overview and re-centre; typing in a text field doesn't trigger them.
 
+### Instances (several worlds or servers)
+
+41. [ ] Log out. The login screen has an **Instance** list; your current world shows there (existing data is in `main` unless you named it otherwise). Choose **＋ New instance…**, name it after the other server or save, and log in: the fleet list is empty and says how many turtles are in other instances.
+42. [ ] **+ Add turtle** in that instance and run `install <code>` on a turtle in the other world: it appears there only, and its map starts empty. Switch back with the header list: your old turtles and map are untouched (and still online if that world is running).
+43. [ ] Header list → **Manage instances…**: counts are right. Rename the new instance: its turtle stays connected. Deleting an instance with online turtles is refused.
+
 ### Chunky turtles (Chunk Controller)
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.

@@ -11,6 +11,7 @@ import { openDb, type Db } from './db';
 import { ApiError, Fleet, type FleetOptions } from './fleet';
 import { handleTurtleSocket } from './turtleSocket';
 import { JobManager } from './jobs/manager';
+import { Instances } from './instances';
 import { digestEquals, now, randomToken, sha256 } from './util';
 
 const SESSION_COOKIE = 'ccf_session';
@@ -26,6 +27,7 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
   const db = opts.db ?? openDb(config.dbFile);
   const fleet = new Fleet(db, opts.fleet);
   const jobs = new JobManager(db, fleet);
+  const instances = new Instances(db, fleet, jobs);
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 256 * 1024 });
 
   await app.register(cookie);
@@ -172,6 +174,11 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
       if ((q.x1 - q.x0 + 1) * (q.z1 - q.z0 + 1) > 1024 * 1024 || q.y1 - q.y0 > 64) throw new ApiError(400, 'requested area too large');
       return fleet.queryMap(q);
     });
+
+    api.get('/api/instances', async () => instances.list());
+    api.post('/api/instances', async (req) => instances.create(z.object({ name: z.string() }).parse(req.body).name));
+    api.patch('/api/instances/:name', async (req) => instances.rename((req.params as { name: string }).name, z.object({ name: z.string() }).parse(req.body).name));
+    api.delete('/api/instances/:name', async (req) => instances.remove((req.params as { name: string }).name));
 
     api.get('/api/depots', async () => jobs.listDepots());
     api.post('/api/depots', async (req) => jobs.saveDepot(req.body));

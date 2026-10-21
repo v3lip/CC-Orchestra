@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BatchView, ChunkNeed, DepotView, EventView, ForcedChunk, GroupView, Heading, JobView, MapBlock, Targets, TunnelParams, TurtleView, UiServerMsg, Vec3 } from '@ccfleet/protocol';
+import type { BatchView, ChunkNeed, DepotView, EventView, ForcedChunk, GroupView, Heading, InstanceView, JobView, MapBlock, Targets, TunnelParams, TurtleView, UiServerMsg, Vec3 } from '@ccfleet/protocol';
 import { api } from './api';
 import { CHUNK, chunksTouched, tiles } from './chunks';
 
@@ -49,6 +49,11 @@ interface FleetState {
   /** Mark ores seen near the current Y level. */
   showOres: boolean;
   setShowOres(v: boolean): void;
+  /** Instances (Minecraft worlds/servers) the backend knows; the one shown is `world`. */
+  instances: InstanceView[];
+  setInstances(list: InstanceView[]): void;
+  /** Show another instance: its turtles, map, jobs and depots (remembered in this browser). */
+  setInstance(name: string): void;
   /** 2D slice map or 3D view. */
   mapMode: '2d' | '3d';
   setMapMode(m: '2d' | '3d'): void;
@@ -93,7 +98,7 @@ export const useFleet = create<FleetState>((set, get) => ({
   batches: [],
   events: [],
   selection: [],
-  world: 'main',
+  world: savedInstance() ?? 'main',
   dimension: 'minecraft:overworld',
   y: 64,
   followY: true,
@@ -104,6 +109,23 @@ export const useFleet = create<FleetState>((set, get) => ({
   rightTab: 'turtle',
   showOres: true,
   setShowOres: (showOres) => set({ showOres }),
+  instances: [],
+  setInstances: (instances) => {
+    rememberServerInstances(instances);
+    set({ instances });
+  },
+  setInstance(name) {
+    rememberInstance(name);
+    const st = get();
+    if (name === st.world) return;
+    // Its turtles' dimension (else the overworld), centred on one of them.
+    const here = Object.values(st.turtles).filter((t) => t.world === name);
+    const first = here.find((t) => t.connection !== 'offline' && t.state?.pose.pos) ?? here.find((t) => t.state?.pose.pos);
+    set({ selection: [], focusId: undefined });
+    st.setWorld(name, first?.dimension ?? 'minecraft:overworld');
+    const p = first?.state?.pose.pos;
+    if (p) st.centerOn(p.x, p.z, p.y);
+  },
   mapMode: '2d',
   setMapMode: (mapMode) => set({ mapMode }),
   contextMenu: undefined,
@@ -179,9 +201,11 @@ function apply(m: UiServerMsg) {
         depots: Object.fromEntries((m.depots ?? []).map((d) => [d.id, d])),
         forcedChunks: m.forcedChunks ?? [],
       });
-      // Default the map to where the turtles are.
+      // Default the map to where the turtles are (in the chosen instance, if one was chosen).
       if (!Object.keys(s.turtles).length && m.turtles.length) {
-        const first = m.turtles.find((t) => t.connection !== 'offline' && t.state?.pose.pos) ?? m.turtles.find((t) => t.state?.pose.pos);
+        const chosen = savedInstance();
+        const pool = chosen ? m.turtles.filter((t) => t.world === chosen) : m.turtles;
+        const first = pool.find((t) => t.connection !== 'offline' && t.state?.pose.pos) ?? pool.find((t) => t.state?.pose.pos);
         if (first) {
           s.setWorld(first.world, first.dimension);
           const p = first.state!.pose.pos!;
@@ -212,6 +236,9 @@ function apply(m: UiServerMsg) {
     }
     case 'event':
       useFleet.setState({ events: [m.event, ...s.events].slice(0, 500) });
+      break;
+    case 'instances':
+      useFleet.getState().setInstances(m.instances);
       break;
     case 'forced_chunks':
       useFleet.setState({ forcedChunks: m.chunks });
@@ -394,3 +421,44 @@ class MapCache {
 }
 
 export const mapCache = new MapCache();
+
+// ------------------------------------------------------------------ chosen instance (per browser)
+// (Keys written out: these run while the store above is being created.)
+
+/** The instance last shown in this browser, if any. */
+export function savedInstance(): string | undefined {
+  try {
+    return localStorage.getItem('ccf.instance') ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Instances this browser has shown (offered on the login screen, before the server list is readable). */
+export function knownInstances(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem('ccf.instances') ?? '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The server's list replaces the remembered one, so renamed and deleted instances drop off the login screen. */
+function rememberServerInstances(list: InstanceView[]): void {
+  try {
+    const current = localStorage.getItem('ccf.instance');
+    localStorage.setItem('ccf.instances', JSON.stringify([...new Set([...(current ? [current] : []), ...list.map((i) => i.name)])].slice(0, 30)));
+  } catch {
+    /* private mode: not remembered */
+  }
+}
+
+export function rememberInstance(name: string, others: string[] = []): void {
+  try {
+    localStorage.setItem('ccf.instance', name);
+    localStorage.setItem('ccf.instances', JSON.stringify([...new Set([name, ...others, ...knownInstances()])].slice(0, 30)));
+  } catch {
+    /* private mode: not remembered */
+  }
+}

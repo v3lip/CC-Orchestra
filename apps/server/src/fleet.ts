@@ -1183,6 +1183,29 @@ export class Fleet {
       .map((r) => ({ x: r.x as number, y: r.y as number, z: r.z as number, block: r.block as string, cell: 'solid' as const, observedAt: r.observed_at as number, source: (r.source as string) ?? undefined }));
   }
 
+  /** Move everything of one world/instance to another name (turtles and map). */
+  renameWorld(from: string, to: string): void {
+    this.flush();
+    tx(this.db, () => {
+      this.db.prepare('UPDATE turtles SET world=? WHERE world=?').run(to, from);
+      this.db.prepare('UPDATE map_blocks SET world=? WHERE world=?').run(to, from);
+      this.db.prepare('UPDATE enrollments SET world=? WHERE world=? AND used_at IS NULL').run(to, from);
+    });
+    for (const rec of this.turtles.values()) {
+      if (rec.world !== from) continue;
+      rec.world = to;
+      this.touch(rec);
+    }
+  }
+
+  /** Delete a world/instance's map and unpair its turtles (credentials revoked). */
+  deleteWorld(world: string): void {
+    this.flush();
+    for (const rec of [...this.turtles.values()]) if (rec.world === world) this.removeTurtle(rec.id);
+    this.db.prepare('DELETE FROM map_blocks WHERE world=?').run(world);
+    this.db.prepare('DELETE FROM enrollments WHERE world=? AND used_at IS NULL').run(world);
+  }
+
   worlds(): { world: string; dimension: string }[] {
     const set = new Map<string, { world: string; dimension: string }>();
     for (const r of this.turtles.values()) set.set(`${r.world}|${r.dimension}`, { world: r.world, dimension: r.dimension });

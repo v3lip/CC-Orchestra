@@ -493,7 +493,21 @@ export type UiServerMsg =
   | { type: 'job_removed'; id: string }
   | { type: 'depot'; depot: DepotView }
   | { type: 'depot_removed'; id: string }
-  | { type: 'forced_chunks'; chunks: ForcedChunk[] };
+  | { type: 'forced_chunks'; chunks: ForcedChunk[] }
+  | { type: 'instances'; instances: InstanceView[] };
+
+/** One Minecraft world/server ("save") and how much CC Fleet knows about it. */
+export interface InstanceView {
+  name: string;
+  createdAt?: number;
+  turtles: number;
+  online: number;
+  mapBlocks: number;
+  /** Jobs not finished or cancelled. */
+  jobs: number;
+  depots: number;
+  lastSeen?: number;
+}
 
 // ---------------------------------------------------------------- depots & jobs
 

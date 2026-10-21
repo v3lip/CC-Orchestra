@@ -8,7 +8,8 @@ const DIR_LABEL: Record<Dir, string> = { front: 'in front', up: 'above', down: '
 
 export function DepotsPanel() {
   const depotMap = useFleet((s) => s.depots);
-  const depots = Object.values(depotMap);
+  const world = useFleet((s) => s.world);
+  const depots = Object.values(depotMap).filter((d) => d.world === world);
   const turtles = useFleet((s) => s.turtles);
   const centerOn = useFleet((s) => s.centerOn);
   const [editing, setEditing] = useState<DepotView | 'new' | undefined>();

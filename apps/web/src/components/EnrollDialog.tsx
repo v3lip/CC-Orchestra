@@ -5,7 +5,7 @@ import { useFleet } from '../lib/store';
 export function EnrollDialog({ onClose }: { onClose: () => void }) {
   const groups = useFleet((s) => s.groups);
   const [name, setName] = useState('');
-  const [world, setWorld] = useState('main');
+  const [world, setWorld] = useState(() => useFleet.getState().world);
   const [dimension, setDimension] = useState('minecraft:overworld');
   const [groupId, setGroupId] = useState('');
   const [result, setResult] = useState<{ code: string; expiresAt: number; publicUrl: string }>();

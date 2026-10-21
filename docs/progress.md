@@ -1,5 +1,13 @@
 # Progress notes
 
+## Instances: one per world or server (2026-10-21)
+
+- Turtles from another server used to land in the same map, jobs and depots as the old save. Every record already carried a world name; that is now an **instance** you choose: on the login screen (remembered instances plus **＋ New instance…**) or in the header (with live online/total counts). The fleet list, map, jobs and depots show the chosen one; new pairing codes go into it. All turtles stay connected whichever instance is shown; **STOP ALL** still stops every one.
+- **Manage instances…** lists each instance's turtles, map blocks, jobs, depots and last contact, and renames (moves turtles, map, depots, jobs and marked chunks; turtles stay connected; refused while a job or go-to runs there) or deletes (unpairs its turtles and removes its data; refused while any of them is online).
+- Database migration 4 adds an `instances` table so an instance can exist before anything is paired into it. Existing data stays where it was (`main`, `sim`).
+- Tests: listing with counts and name validation, rename moving everything with the turtle still online, delete refused while online then removing everything. Browser check on a throwaway backend: login list, switching, live counts, empty-instance message, Manage dialog updating over the socket.
+
+
 ## Milestone 6, B5 — follow camera and 3D shortcuts (2026-10-21)
 
 - **Follow** (3D toolbar, or G): the camera stays on the focused turtle (else the first selected), gliding along at the same viewing angle; the 3D area re-centres when the turtle leaves its middle. Right-drag panning stops following. Remembered in the browser.

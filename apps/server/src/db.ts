@@ -138,6 +138,13 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (world, dimension, cx, cz)
   ) WITHOUT ROWID;
   `,
+  // 4: instances (one per Minecraft world/server), so one can exist before anything is paired into it
+  `
+  CREATE TABLE instances (
+    name TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL
+  ) WITHOUT ROWID;
+  `,
 ];
 
 export function openDb(file: string): Db {

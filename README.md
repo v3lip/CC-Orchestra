@@ -12,6 +12,7 @@ Self-hosted fleet management for [CC: Tweaked](https://tweaked.cc/) mining turtl
 - **Finding ores:** scan every block around the work area so the map shows what's there, and follow veins of chosen ores (any mod's ores; "Any ore", Diamond, Coal, custom ids) out of the tunnel and back.
 - **Ore search:** an Ores tab listing every ore seen but not mined, by type and vein, nearest first; click to jump the map there.
 - **Several turtles at once:** campaigns (one job per turtle, or one tunnel/quarry split into lanes), traffic control (cell reservations, giving way early when meeting head-on, deadlock detection), a shared depot with a queue and waiting spots.
+- **Instances:** one per Minecraft world or server, picked on the login screen or in the header. Turtles from another save get their own map, jobs and depots; all of them stay connected, the dashboard shows one instance at a time. **Manage instances…** renames or deletes one.
 - **Simulator** with the same protocol (and a host that runs the real Lua agent) for trying things without Minecraft.
 
 | New job: quarry with ore filters | Turtle details |

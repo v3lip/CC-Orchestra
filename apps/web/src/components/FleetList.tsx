@@ -36,6 +36,7 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
   const select = useFleet((s) => s.select);
   const focus = useFleet((s) => s.focus);
   const toast = useFleet((s) => s.toast);
+  const world = useFleet((s) => s.world);
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [groupFilter, setGroupFilter] = useState<string>('');
@@ -45,6 +46,7 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
     const needle = q.trim().toLowerCase();
     const g = groups.find((x) => x.id === groupFilter);
     return Object.values(turtles)
+      .filter((t) => t.world === world)
       .filter((t) => !needle || t.name.toLowerCase().includes(needle) || t.id.toLowerCase().includes(needle) || (t.label ?? '').toLowerCase().includes(needle) || String(t.computerId) === needle)
       .filter((t) => !g || g.memberIds.includes(t.id))
       .filter((t) => {
@@ -64,7 +66,8 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
         }
       })
       .sort((a, b) => Number(a.connection === 'offline') - Number(b.connection === 'offline') || a.name.localeCompare(b.name, undefined, { numeric: true }));
-  }, [turtles, groups, q, filter, groupFilter]);
+  }, [turtles, groups, q, filter, groupFilter, world]);
+  const elsewhere = Object.values(turtles).filter((t) => t.world !== world).length;
 
   const sel = new Set(selection);
   const allVisibleSelected = list.length > 0 && list.every((t) => sel.has(t.id));
@@ -101,7 +104,7 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-edge px-3 py-2">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-dim">
-          Fleet <span className="num text-ink">{Object.keys(turtles).length}</span>
+          Fleet <span className="num text-ink">{Object.keys(turtles).length - elsewhere}</span>
         </h2>
         <button onClick={onEnroll} className="rounded bg-cyan-700/40 px-2 py-0.5 text-xs text-cyan-200 hover:bg-cyan-600/50">
           + Add turtle
@@ -231,7 +234,12 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
         })}
         {list.length === 0 && (
           <li className="p-4 text-center text-xs text-slate-600">
-            {Object.keys(turtles).length === 0 ? 'No turtles yet. Start the simulator or add a turtle.' : 'Nothing matches.'}
+            {Object.keys(turtles).length === 0 ? 'No turtles yet. Start the simulator or add a turtle.' : elsewhere && !Object.values(turtles).some((t) => t.world === world) ? `No turtles in "${world}" yet. Add a turtle to pair one into it.` : 'Nothing matches.'}
+          </li>
+        )}
+        {elsewhere > 0 && (
+          <li className="px-3 py-2 text-[11px] text-slate-500" title="Switch instance at the top of the page">
+            {elsewhere} turtle{elsewhere === 1 ? '' : 's'} in other instances
           </li>
         )}
       </ul>

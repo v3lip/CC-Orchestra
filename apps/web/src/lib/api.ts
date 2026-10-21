@@ -1,4 +1,4 @@
-import type { BatchView, CampaignInput, ChunkNeed, DepotInput, DepotView, GroupView, JobEstimate, JobInput, JobView, MapBlock, Targets, TurtleView, Vec3 } from '@ccfleet/protocol';
+import type { BatchView, CampaignInput, ChunkNeed, DepotInput, DepotView, GroupView, InstanceView, JobEstimate, JobInput, JobView, MapBlock, Targets, TurtleView, Vec3 } from '@ccfleet/protocol';
 
 export class HttpError extends Error {
   constructor(
@@ -31,6 +31,10 @@ export const api = {
   me: () => req<{ loggedIn: boolean }>('GET', '/api/auth/me'),
   login: (password: string) => req<{ ok: true }>('POST', '/api/auth/login', { password }),
   logout: () => req<{ ok: true }>('POST', '/api/auth/logout', {}),
+  instances: () => req<InstanceView[]>('GET', '/api/instances'),
+  createInstance: (name: string) => req<InstanceView[]>('POST', '/api/instances', { name }),
+  renameInstance: (from: string, to: string) => req<InstanceView[]>('PATCH', `/api/instances/${encodeURIComponent(from)}`, { name: to }),
+  deleteInstance: (name: string) => req<InstanceView[]>('DELETE', `/api/instances/${encodeURIComponent(name)}`),
   ores: (world: string, dimension: string) =>
     req<{ ores: MapBlock[] }>('GET', `/api/map/ores?world=${encodeURIComponent(world)}&dimension=${encodeURIComponent(dimension)}`),
   info: () => req<{ publicUrl: string; worlds: { world: string; dimension: string }[] }>('GET', '/api/info'),

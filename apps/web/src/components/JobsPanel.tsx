@@ -37,7 +37,10 @@ export function JobsPanel() {
   useEffect(() => {
     if (prefill) setCreating(true);
   }, [prefill]);
-  const jobs = Object.values(jobMap).sort((a, b) => b.createdAt - a.createdAt);
+  const world = useFleet((s) => s.world);
+  const jobs = Object.values(jobMap)
+    .filter((j) => j.world === world)
+    .sort((a, b) => b.createdAt - a.createdAt);
   if (creating) return <JobForm onDone={() => setCreating(false)} />;
 
   // Campaigns (jobs created together) are shown as one card; the rest individually.
