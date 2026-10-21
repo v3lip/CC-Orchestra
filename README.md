@@ -1,37 +1,105 @@
+<div align="center">
+
 # CC Fleet
 
-Self-hosted fleet management for [CC: Tweaked](https://tweaked.cc/) mining turtles: a browser dashboard, a Node backend, and a small Lua agent on each turtle. The backend plans the work; turtles only run single, verified actions, so a job survives disconnects, chunk unloads and restarts.
+**Mission control for your [CC: Tweaked](https://tweaked.cc/) mining turtles.**
 
-![Dashboard: three turtles sharing a quarry, with ore finds and the ore overlay](docs/screenshots/overview.png)
+Pair your turtles once, then run them from your browser: a live map of everything they've seen, mining jobs that survive crashes and restarts, ore hunting, and a whole fleet that shares the tunnels without getting in each other's way.
 
-## Features
+![Minecraft 1.16.5 · 1.21.1](https://img.shields.io/badge/Minecraft-1.16.5%20%C2%B7%201.21.1-62b47a)
+![CC: Tweaked](https://img.shields.io/badge/CC%3A%20Tweaked-1.100%2B-f0c040)
+![Node.js 22.13+](https://img.shields.io/badge/Node.js-22.13%2B-339933)
+![Self-hosted](https://img.shields.io/badge/self--hosted-no%20cloud-0e7490)
 
-- **Live map** of everything the turtles have seen, per Y level, with a chunk overlay (which chunks Chunk Controllers keep loaded) and an **◆ ore overlay**, plus a **3D view** (256×256 blocks with level of detail, x-ray, a Y cut-off to look into tunnels, an overview inset, job progress and routes, a follow camera and keyboard shortcuts).
-- **Manual control** of one or many turtles (W/S/A/D/R/F, dig, inspect, refuel), with an emergency stop, and a **right-click menu** on the map: send a turtle to a spot, start a job there, pause/resume/stop a turtle.
-- **Mining jobs:** tunnel, branch mine, grid mine and quarry. Turtles return to a depot to unload and refuel, then continue where they stopped; jobs pause safely and can be resumed.
-- **Finding ores:** scan every block around the work area so the map shows what's there, and follow veins of chosen ores (any mod's ores; "Any ore", Diamond, Coal, custom ids) out of the tunnel and back.
-- **Ore search:** an Ores tab listing every ore seen but not mined, by type and vein, nearest first; click to jump the map there.
-- **Several turtles at once:** campaigns (one job per turtle, or one tunnel/quarry split into lanes), traffic control (cell reservations, giving way early when meeting head-on, deadlock detection), a shared depot with a queue and waiting spots.
-- **Instances:** one per Minecraft world or server, picked on the login screen or in the header. Turtles from another save get their own map, jobs and depots; all of them stay connected, the dashboard shows one instance at a time. **Manage instances…** renames or deletes one.
-- **Simulator** with the same protocol (and a host that runs the real Lua agent) for trying things without Minecraft.
+![The CC Fleet dashboard: three turtles sharing a quarry, with ore finds and the ore overlay](docs/screenshots/overview.png)
 
-| New job: quarry with ore filters | Turtle details |
-|---|---|
-| <img src="docs/screenshots/job-form.png" width="320" alt="Job form"> | <img src="docs/screenshots/turtle-details.png" width="320" alt="Turtle details"> |
+[Try it without Minecraft](#try-it-in-two-minutes-no-minecraft-needed) · [Connect real turtles](#connect-your-turtles) · [Features](#what-it-does) · [FAQ](#faq)
 
-![Ores tab: ores seen but not mined, grouped into veins; clicking one centres the map on it](docs/screenshots/ores.png)
+</div>
+
+---
+
+## Why CC Fleet?
+
+Everyone who plays with turtles knows the story: you write a mining script, send the turtle off, walk away… and come back to a turtle stuck behind gravel, out of fuel, lost after its chunk unloaded, or wandering because it forgot where home was.
+
+CC Fleet takes a different approach: **the brain lives on your PC, not on the turtle.** Each turtle runs a small agent that does one checked action at a time. The backend plans the work, tracks every move and keeps the map. So:
+
+- 🔁 **Jobs survive interruptions.** Disconnects, chunk unloads, a server or backend restart: the job pauses safely and carries on from where it stopped when you press Resume.
+- 🧭 **Turtles never guess where they are.** Position comes from calibration or GPS and is tracked move by move. If a move's outcome is unknown, the turtle is marked *uncertain* instead of quietly drifting off course.
+- 🛡️ **It won't wreck your base.** Turtles never dig chests or other inventories, and refuse protected blocks (spawners, beds, portals, other computers…). In a job they only dig the area you gave them, plus any ore veins you asked them to follow.
+- 🗺️ **You see everything.** Every block a turtle has looked at goes on a shared map, in 2D and 3D, including every ore it walked past.
+- 🐢🐢🐢 **Many turtles, one plan.** Split a quarry between six turtles; they reserve cells, give way to each other in tunnels and take turns at the depot chest.
+
+## What it does
+
+### 🗺️ A live map, in 2D and 3D
+
+Everything your turtles have seen, slice by slice at any Y level, with an ore overlay and a chunk overlay showing which chunks are kept loaded. Switch to **3D** to orbit around your tunnels, x-ray the stone to see the ores in the walls, cut away everything above a Y level to look into a tunnel, or have the camera follow a turtle as it works.
 
 ![3D view: a quarry dug by three turtles, its scanned walls and the ores in them](docs/screenshots/3d.png)
 
-> **Status: Milestones 1–4 done; 5 nearly (formations left); 6 started (3D view).** Confirmed in-game: pairing, telemetry, manual control, tunnel jobs with unloading, chunk loading with Chunk Controllers, multi-turtle traffic (incl. giving way head-on), waiting spots, campaigns, branch/grid/quarry jobs, wall scanning, ore-vein following and the Ores tab. Tested **outside Minecraft** so far: the 3D view and the right-click menu. Verify with [docs/in-game-checklist.md](docs/in-game-checklist.md). See [docs/progress.md](docs/progress.md).
+### ⛏️ Mining jobs that finish
 
-## Quick start (local development)
+**Tunnel**, **branch mine**, **grid mine** and **quarry**. Pick a turtle and a depot (a dock next to a chest, plus an optional fuel chest), then press start. When the inventory fills or fuel runs low, the turtle drives home, unloads, refuels and goes back to where it left off. Progress is drawn on the map as it digs.
 
-Requires Node.js 22.13+ (24 recommended; uses the built-in `node:sqlite`).
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/job-form.png" alt="New job form: a quarry with ore filters"></td>
+<td width="50%"><img src="docs/screenshots/turtle-details.png" alt="Turtle details: position, fuel, inventory and upgrades"></td>
+</tr>
+<tr>
+<td><sub>New job: a quarry with ore filters</sub></td>
+<td><sub>Turtle details: position, fuel, inventory, upgrades</sub></td>
+</tr>
+</table>
+
+### 💎 Ore hunting
+
+Have turtles **scan the walls** as they dig, so the map shows every block around the tunnel, and **follow ore veins** out of the tunnel and back: Diamond, Coal, "any ore", or any modded ore by id. The **Ores** tab lists every ore seen but not yet mined, grouped into veins, nearest first. Click one and the map jumps there.
+
+![Ores tab: ores seen but not mined, grouped into veins](docs/screenshots/ores.png)
+
+### 🐢 A real fleet
+
+- **Campaigns:** one job per turtle, or one tunnel or quarry split into lanes.
+- **Traffic control:** turtles reserve the cells ahead of them, give way early when they meet head-on, and detect deadlocks.
+- **Shared depot:** a queue and waiting spots, so turtles take turns at the chest.
+- **Groups**, multi-select and an **emergency stop** for the whole fleet.
+
+### 🎮 Hands-on control
+
+Drive one turtle or a whole selection at once with **W/A/S/D/R/F**, and dig, inspect, refuel or pick slots from the command bar. **Right-click the map** to send a turtle to a spot, start a job right there, or pause, resume or stop a turtle. Every command shows its result for each turtle.
+
+### 🌍 One dashboard, many worlds
+
+Play on several servers or saves? Each gets its own **instance**, with its own turtles, map, jobs and depots. Pick it on the login screen or switch from the header at any time; turtles in every instance stay connected.
+
+### 🧪 A simulator built in
+
+No Minecraft open? The simulator runs turtles in a generated world over the exact same protocol, and can even run the **real Lua agent** in a CC-like host. Try everything before you set foot underground.
+
+## How it works
+
+```mermaid
+flowchart LR
+    B["🖥️ Dashboard<br/>(your browser)"] <-- "HTTP + WebSocket" --> S["⚙️ CC Fleet backend<br/>Node.js · SQLite<br/>plans jobs, keeps the map"]
+    S <-- "WebSocket" --> T1["🐢 Turtle<br/>Lua agent"]
+    S <-- "WebSocket" --> T2["🐢 Turtle<br/>Lua agent"]
+    S <-- "WebSocket" --> T3["🐢 Turtle<br/>Lua agent"]
+```
+
+The backend runs on your own PC or server; nothing goes through a cloud service. Turtles connect with CC: Tweaked's built-in WebSocket support. Every command is a single action (move, dig, inspect…): the turtle checks it, does it and reports back what it saw. It also keeps a small journal on disk, so after a crash it can tell whether its last move really happened.
+
+## Try it in two minutes (no Minecraft needed)
+
+You need [Node.js](https://nodejs.org/) **22.13 or newer** (24 recommended).
 
 ```bash
+git clone https://github.com/v3lip/CC-Fleet.git
+cd CC-Fleet
 npm install
-npm run setup        # creates .env with a random dashboard password (printed once; it's in .env)
+npm run setup        # creates .env with a random dashboard password (printed once; it's also in .env)
 npm run build        # builds the dashboard
 npm run start        # backend + dashboard on http://127.0.0.1:8787
 ```
@@ -42,32 +110,99 @@ In a second terminal, start some simulated turtles:
 npm run sim -- --count 6
 ```
 
-Open http://127.0.0.1:8787, log in with `ADMIN_PASSWORD` from `.env`, select turtles and drive them (W/S/A/D to move and turn, R/F for up and down).
+Open **http://127.0.0.1:8787**, log in with the password, select turtles and drive them with **W/S/A/D** (move and turn) and **R/F** (up and down).
 
-A fresh simulator world includes a depot site: a chest west of the first turtle's start and a fuel chest under it. To try a job: select the first turtle → **Depots** → **New depot** → "Use … as the dock", facing **W**, fuel chest **below** → Save. Then **Jobs** → **New job** → pick Tunnel, Branch mine or Quarry → "Start in front of the turtle" → **Create & start**. Under **Finding ores** you can have it scan the walls and follow ore veins. (The sim world only has ores below the dirt, a few blocks down.)
+**Run your first job.** The simulator world comes with a depot site: a chest west of the first turtle and a fuel chest under it.
 
-Add `--lua` to run the **real Lua agent** (`turtle/fleet/agent.lua`, installed through the real installer) in a CC-like host instead of the TypeScript agent:
+1. Select the first turtle → **Depots** → **New depot** → "Use … as the dock", facing **W**, fuel chest **below** → **Save**.
+2. **Jobs** → **New job** → Tunnel, Branch mine or Quarry → "Start in front of the turtle" → **Create & start**.
+3. Optional: under **Finding ores**, turn on wall scanning and vein following. (The sim world keeps its ores a few blocks below the dirt.)
 
-```bash
-npm run sim -- --lua --count 3 --data ./sim-data-lua
-```
-
-Simulator options: `--chunky` (equip a Chunk Controller), `--count N`, `--speed 2` (faster ops), `--reset` (fresh world and turtles), `--no-calibrate` (start with unknown pose), `--no-gps`. Simulated turtles are registered in the world `sim`, so their map never mixes with real data. They are marked **SIM** everywhere.
-
-### Hot-reload development
+<details>
+<summary>More simulator options</summary>
 
 ```bash
-npm run dev          # backend (tsx watch) on :8787 + Vite on http://127.0.0.1:5173 (proxies /api and /ws)
+npm run sim -- --lua --count 3 --data ./sim-data-lua   # run the real Lua agent instead of the TypeScript one
 ```
 
-### Tests
+`--chunky` (equip a Chunk Controller), `--count N`, `--speed 2` (faster actions), `--reset` (fresh world and turtles), `--no-calibrate` (start with an unknown position), `--no-gps`. Simulated turtles live in their own instance, `sim`, so their map never mixes with real data, and they're marked **SIM** everywhere.
 
-```bash
-npm test             # protocol unit tests + backend/simulator integration tests
-npm run typecheck
+</details>
+
+## Connect your turtles
+
+**1. Let turtles reach the backend.** CC: Tweaked blocks local network addresses by default. In your world's `computercraft-server.toml`, add one narrow allow rule for the backend's address and port, *above* the existing `$private` deny rule:
+
+```toml
+# CC Fleet backend: only this address and port.
+[[http.rules]]
+    host = "127.0.0.1"
+    port = 8787
+    action = "allow"
 ```
 
-### Docker
+[docs/minecraft-setup.md](docs/minecraft-setup.md) has the details: where the file is, running the backend on another machine, WebSockets.
+
+**2. Pair a turtle.** Use a mining turtle. In the dashboard, click **Add turtle** to get a single-use pairing code, then run this on the turtle:
+
+```
+wget http://127.0.0.1:8787/turtle/install.lua install.lua
+install ABCD-EFGH
+```
+
+**3. Calibrate.** Type the turtle's block coordinates (F3) and the way it faces, e.g. `120 64 -35 n`, or press Enter and calibrate from the dashboard. If you have a GPS network, **GPS fix** finds the position for you.
+
+That's it: the turtle shows up on the map. The agent starts on boot, the turtle keeps its files when picked up (the installer labels it), and running `install` again updates it.
+
+> **Keep the chunks loaded.** Turtles freeze when their chunk unloads. For long jobs, give the turtle an Advanced Peripherals **Chunk Controller** (a "chunky turtle"), or force-load the mining area. See [chunk loading](docs/minecraft-setup.md#4-chunk-loading--read-this).
+
+## Compatibility
+
+| Setup | Status |
+|---|---|
+| **Minecraft 1.16.5** (Forge), CC: Tweaked 1.100.2, Advanced Peripherals 0.7.7 · *FTB Ultimate Anniversary* | ✅ Tested in-game: pairing, control, every job type, multi-turtle traffic, chunky turtles, ore scanning |
+| **Minecraft 1.21.1** (NeoForge), CC: Tweaked 1.120.2 · *FTB Evolution* | ✅ In use: pairing, telemetry, manual control |
+| Other versions | Should work: the agent only uses long-standing CC: Tweaked APIs (HTTP WebSockets, the turtle API, JSON), and the map handles build heights from −64 to 320 |
+| Backend | Windows, macOS or Linux with Node.js 22.13+, or Docker |
+
+Advanced Peripherals is optional; it adds the Chunk Controller for chunky turtles.
+
+## FAQ
+
+<details>
+<summary><b>The installer says the backend is blocked, or the turtle can't connect.</b></summary>
+
+That's CC: Tweaked's HTTP rules. Add the allow rule from [Connect your turtles](#connect-your-turtles) *above* the `$private` deny rule, then restart the world. If the backend runs on another machine, use its LAN IP and set `PUBLIC_URL` in `.env` to match.
+</details>
+
+<details>
+<summary><b>A move fails with "Movement failed".</b></summary>
+
+Almost always a claimed chunk: claim mods like FTB Chunks keep turtles (fake players) out. Allow fake players in your team's FTB Chunks settings, or unclaim the chunks your turtles work in. The dashboard shows this hint next to the error.
+</details>
+
+<details>
+<summary><b>My turtle stops when I walk away.</b></summary>
+
+Its chunk unloaded. Use a chunky turtle (Advanced Peripherals Chunk Controller) or force-load the mining area. A job paused this way carries on when you press Resume.
+</details>
+
+<details>
+<summary><b>I play on more than one server. Will their maps mix?</b></summary>
+
+No. Create an instance for each server or save (login screen → **＋ New instance…**) and pair that server's turtles into it. Each instance has its own map, jobs and depots.
+</details>
+
+<details>
+<summary><b>Can other people reach my dashboard?</b></summary>
+
+Not by default. The backend only listens on `127.0.0.1`, and the dashboard needs your password. Each turtle gets its own credentials when it pairs; removing a turtle in the dashboard revokes them.
+</details>
+
+## Running it for real
+
+<details>
+<summary><b>Docker</b></summary>
 
 ```bash
 npm run setup        # or put ADMIN_PASSWORD=... in .env yourself
@@ -75,8 +210,10 @@ docker compose up -d --build
 ```
 
 Data persists in the `fleet-data` volume. The port is bound to `127.0.0.1` only; see the comment in `docker-compose.yml` for LAN use.
+</details>
 
-## Configuration (`.env`)
+<details>
+<summary><b>Configuration (<code>.env</code>)</b></summary>
 
 | Variable | Default | |
 |---|---|---|
@@ -86,33 +223,36 @@ Data persists in the `fleet-data` volume. The port is bound to `127.0.0.1` only;
 | `DATA_DIR` | `./data` | SQLite database location |
 | `PUBLIC_URL` | `http://127.0.0.1:8787` | address turtles use; shown in pairing instructions |
 | `SECURE_COOKIES` | off | set `1` behind HTTPS |
+</details>
 
-## Minecraft side
+<details>
+<summary><b>Development</b></summary>
 
-Tested with MC 1.16.5, Forge 36.2.26, CC: Tweaked 1.100.2 and Advanced Peripherals 0.7.7 (FTB Ultimate Anniversary). The Lua agent avoids newer CC APIs. **CC: Tweaked blocks local addresses by default**: [docs/minecraft-setup.md](docs/minecraft-setup.md) shows the one narrow http allow rule to add, and covers chunk loading, fuel and GPS.
-
-Then, on a mining turtle (create the code with **Add turtle** in the dashboard):
-
+```bash
+npm run dev          # backend (tsx watch) on :8787 + Vite on http://127.0.0.1:5173 (proxies /api and /ws)
+npm test             # protocol unit tests + backend/simulator integration tests
+npm run typecheck
 ```
-wget http://127.0.0.1:8787/turtle/install.lua install.lua
-install ABCD-EFGH
-```
 
-## Docs
+The repository is an npm workspace: `packages/protocol` (shared message types), `apps/server` (backend), `apps/web` (React dashboard), `apps/sim` (simulator) and `turtle/` (the Lua agent and installer).
+</details>
 
-- [Architecture and strategy definitions](docs/architecture.md)
-- [Wire protocol](docs/protocol.md)
-- [Minecraft setup](docs/minecraft-setup.md)
+## Roadmap
+
+1. ✅ Backend, persistence, simulator and dashboard
+2. ✅ Real Lua turtles: pairing, telemetry, calibrated position, manual control
+3. ✅ Reliable tunnel jobs with automatic return, unloading and resume
+4. ✅ Multi-turtle scheduling, groups, depot queues and collision handling
+5. 🟡 Branch mine, grid mine, quarry, wall scanning, ore veins, ore search and the persistent map ✅; formations to go
+6. 🟡 3D view ✅; Geo Scanner mapping next ([plan](docs/milestone-6.md))
+7. ⬜ Formations (splitting any job between turtles) and minimap waypoints (JourneyMap / Xaero)
+
+Everything marked done has been checked in-game with [the verification checklist](docs/in-game-checklist.md), except the newest work (the 3D view, the right-click menu and instances), which is tested in the simulator so far. Day-by-day notes are in [docs/progress.md](docs/progress.md).
+
+## Documentation
+
+- [Minecraft setup](docs/minecraft-setup.md): HTTP rules, installing the agent, fuel, chunk loading, GPS
 - [In-game verification checklist](docs/in-game-checklist.md)
+- [Architecture and mining strategies](docs/architecture.md)
+- [Wire protocol](docs/protocol.md)
 - [Progress notes](docs/progress.md)
-- [Milestone 6 plan](docs/milestone-6.md)
-
-## Milestones
-
-1. ✅ Repository, backend, persistence, simulator, basic dashboard
-2. ✅ Real Lua turtle pairing, telemetry, calibrated position, manual control (confirmed in-game)
-3. ✅ One reliable tunnel job, automatic return, unloading and resume (confirmed in-game)
-4. ✅ Multi-turtle scheduling, groups, depot queues, collision handling (confirmed in-game)
-5. More strategies, formations, persistent 2D mapping (branch mine, grid mine, quarry, wall scanning, ore-vein following, ore search and the persistent map done and confirmed in-game; formations left)
-6. 3D view, Geo Scanner mapping and 3D view upgrades (in progress: 3D view done; plan in [docs/milestone-6.md](docs/milestone-6.md))
-7. Formations (splitting any job between turtles) and minimap waypoints (JourneyMap / Xaero)
