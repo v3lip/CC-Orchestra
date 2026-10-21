@@ -24,7 +24,11 @@ export interface Toast {
 
 interface FleetState {
   live: 'connecting' | 'live' | 'down';
+  /** Turtles, jobs and depots of the instance shown (`world`); the all* maps hold every instance. */
   turtles: Record<string, TurtleView>;
+  allTurtles: Record<string, TurtleView>;
+  allJobs: Record<string, JobView>;
+  allDepots: Record<string, DepotView>;
   groups: GroupView[];
   batches: BatchView[];
   events: EventView[];
@@ -94,6 +98,9 @@ let centerSeq = 0;
 export const useFleet = create<FleetState>((set, get) => ({
   live: 'connecting',
   turtles: {},
+  allTurtles: {},
+  allJobs: {},
+  allDepots: {},
   groups: [],
   batches: [],
   events: [],
@@ -119,7 +126,7 @@ export const useFleet = create<FleetState>((set, get) => ({
     const st = get();
     if (name === st.world) return;
     // Its turtles' dimension (else the overworld), centred on one of them.
-    const here = Object.values(st.turtles).filter((t) => t.world === name);
+    const here = Object.values(st.allTurtles).filter((t) => t.world === name);
     const first = here.find((t) => t.connection !== 'offline' && t.state?.pose.pos) ?? here.find((t) => t.state?.pose.pos);
     set({ selection: [], focusId: undefined });
     st.setWorld(name, first?.dimension ?? 'minecraft:overworld');
@@ -142,7 +149,9 @@ export const useFleet = create<FleetState>((set, get) => ({
   setRightTab: (rightTab) => set({ rightTab }),
   setJobDraft: (jobDraft) => set({ jobDraft }),
 
-  select(ids, mode = 'replace') {
+  select(all, mode = 'replace') {
+    // Only turtles of the instance shown (a group can hold turtles of several).
+    const ids = all.filter((id) => get().turtles[id]);
     const cur = new Set(get().selection);
     if (mode === 'replace') {
       set({ selection: [...new Set(ids)], focusId: ids.length ? ids[ids.length - 1] : get().focusId });
@@ -169,7 +178,8 @@ export const useFleet = create<FleetState>((set, get) => ({
   setWorld(world, dimension) {
     if (world === get().world && dimension === get().dimension) return;
     mapCache.reset();
-    set({ world, dimension, mapVersion: get().mapVersion + 1 });
+    const st = get();
+    set({ world, dimension, mapVersion: st.mapVersion + 1, ...(world !== st.world ? scoped({ ...st, world }) : {}) });
   },
   centerOn(x, z, y) {
     set({ centerTarget: { x, z, n: ++centerSeq }, ...(y !== undefined ? { y } : {}) });
@@ -185,24 +195,50 @@ export const useFleet = create<FleetState>((set, get) => ({
 
 // ------------------------------------------------------------------ live updates
 
-function apply(m: UiServerMsg) {
+/** The entries of `all` in `world`; `prev` itself when nothing in it changed (keeps React effects quiet). */
+function inWorld<T extends { world: string }>(all: Record<string, T>, world: string, prev: Record<string, T>): Record<string, T> {
+  const next = Object.fromEntries(Object.entries(all).filter(([, v]) => v.world === world));
+  const keys = Object.keys(next);
+  return keys.length === Object.keys(prev).length && keys.every((k) => prev[k] === next[k]) ? prev : next;
+}
+
+/** The instance-scoped maps for `st.world`; selection and focus drop anything outside it. */
+function scoped(st: Pick<FleetState, 'world' | 'allTurtles' | 'allJobs' | 'allDepots' | 'turtles' | 'jobs' | 'depots' | 'selection' | 'focusId'>) {
+  const turtles = inWorld(st.allTurtles, st.world, st.turtles);
+  const selection = st.selection.filter((id) => turtles[id]);
+  return {
+    turtles,
+    jobs: inWorld(st.allJobs, st.world, st.jobs),
+    depots: inWorld(st.allDepots, st.world, st.depots),
+    selection: selection.length === st.selection.length ? st.selection : selection,
+    focusId: st.focusId && turtles[st.focusId] ? st.focusId : undefined,
+  };
+}
+
+function rescope() {
+  useFleet.setState(scoped(useFleet.getState()));
+}
+
+/** Applies one live message (exported for tests). */
+export function apply(m: UiServerMsg) {
   const s = useFleet.getState();
   switch (m.type) {
     case 'init': {
       const turtles = Object.fromEntries(m.turtles.map((t) => [t.id, t]));
       const selection = s.selection.filter((id) => turtles[id]);
       useFleet.setState({
-        turtles,
+        allTurtles: turtles,
         groups: m.groups,
         batches: m.batches,
         events: m.events,
         selection,
-        jobs: Object.fromEntries((m.jobs ?? []).map((j) => [j.id, j])),
-        depots: Object.fromEntries((m.depots ?? []).map((d) => [d.id, d])),
+        allJobs: Object.fromEntries((m.jobs ?? []).map((j) => [j.id, j])),
+        allDepots: Object.fromEntries((m.depots ?? []).map((d) => [d.id, d])),
         forcedChunks: m.forcedChunks ?? [],
       });
       // Default the map to where the turtles are (in the chosen instance, if one was chosen).
-      if (!Object.keys(s.turtles).length && m.turtles.length) {
+      rescope();
+      if (!Object.keys(s.allTurtles).length && m.turtles.length) {
         const chosen = savedInstance();
         const pool = chosen ? m.turtles.filter((t) => t.world === chosen) : m.turtles;
         const first = pool.find((t) => t.connection !== 'offline' && t.state?.pose.pos) ?? pool.find((t) => t.state?.pose.pos);
@@ -215,15 +251,17 @@ function apply(m: UiServerMsg) {
       break;
     }
     case 'turtle': {
-      const prev = s.turtles[m.turtle.id];
-      useFleet.setState({ turtles: { ...s.turtles, [m.turtle.id]: m.turtle } });
+      const prev = s.allTurtles[m.turtle.id];
+      useFleet.setState({ allTurtles: { ...s.allTurtles, [m.turtle.id]: m.turtle } });
+      rescope();
       const pos = m.turtle.state?.pose.pos;
       if (s.followY && s.focusId === m.turtle.id && pos && prev?.state?.pose.pos?.y !== pos.y) s.setY(pos.y);
       break;
     }
     case 'turtle_removed': {
-      const { [m.id]: _gone, ...rest } = s.turtles;
-      useFleet.setState({ turtles: rest, selection: s.selection.filter((id) => id !== m.id), focusId: s.focusId === m.id ? undefined : s.focusId });
+      const { [m.id]: _gone, ...rest } = s.allTurtles;
+      useFleet.setState({ allTurtles: rest, selection: s.selection.filter((id) => id !== m.id), focusId: s.focusId === m.id ? undefined : s.focusId });
+      rescope();
       break;
     }
     case 'groups':
@@ -244,19 +282,23 @@ function apply(m: UiServerMsg) {
       useFleet.setState({ forcedChunks: m.chunks });
       break;
     case 'job':
-      useFleet.setState({ jobs: { ...s.jobs, [m.job.id]: m.job } });
+      useFleet.setState({ allJobs: { ...s.allJobs, [m.job.id]: m.job } });
+      rescope();
       break;
     case 'job_removed': {
-      const { [m.id]: _j, ...jobs } = s.jobs;
-      useFleet.setState({ jobs });
+      const { [m.id]: _j, ...allJobs } = s.allJobs;
+      useFleet.setState({ allJobs });
+      rescope();
       break;
     }
     case 'depot':
-      useFleet.setState({ depots: { ...s.depots, [m.depot.id]: m.depot } });
+      useFleet.setState({ allDepots: { ...s.allDepots, [m.depot.id]: m.depot } });
+      rescope();
       break;
     case 'depot_removed': {
-      const { [m.id]: _d, ...depots } = s.depots;
-      useFleet.setState({ depots });
+      const { [m.id]: _d, ...allDepots } = s.allDepots;
+      useFleet.setState({ allDepots });
+      rescope();
       break;
     }
     case 'map':

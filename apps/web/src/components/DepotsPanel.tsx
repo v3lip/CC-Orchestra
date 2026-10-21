@@ -8,8 +8,7 @@ const DIR_LABEL: Record<Dir, string> = { front: 'in front', up: 'above', down: '
 
 export function DepotsPanel() {
   const depotMap = useFleet((s) => s.depots);
-  const world = useFleet((s) => s.world);
-  const depots = Object.values(depotMap).filter((d) => d.world === world);
+  const depots = Object.values(depotMap);
   const turtles = useFleet((s) => s.turtles);
   const centerOn = useFleet((s) => s.centerOn);
   const [editing, setEditing] = useState<DepotView | 'new' | undefined>();
@@ -74,7 +73,7 @@ function DepotForm({ depot, onDone }: { depot?: DepotView; onDone: () => void })
   const focus = useFleet((s) => (s.focusId ? s.turtles[s.focusId] : undefined));
   const [v, setV] = useState(() => ({
     name: depot?.name ?? 'Home',
-    world: depot?.world ?? focus?.world ?? 'main',
+    world: depot?.world ?? focus?.world ?? useFleet.getState().world,
     dimension: depot?.dimension ?? focus?.dimension ?? 'minecraft:overworld',
     x: String(depot?.dock.x ?? ''),
     y: String(depot?.dock.y ?? ''),

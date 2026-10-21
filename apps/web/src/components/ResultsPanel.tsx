@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { BatchItem } from '@ccfleet/protocol';
 import { useFleet } from '../lib/store';
 
@@ -27,9 +28,14 @@ const STATUS_HELP: Record<string, string> = {
 
 /** Per-turtle results of a command batch. Partial failures are shown per turtle. */
 export function ResultsPanel() {
-  const batches = useFleet((s) => s.batches);
+  const allBatches = useFleet((s) => s.batches);
   const activeId = useFleet((s) => s.activeBatchId);
   const turtles = useFleet((s) => s.turtles);
+  // Only rows for turtles of the instance shown (STOP ALL covers every instance).
+  const batches = useMemo(
+    () => allBatches.map((b) => ({ ...b, items: b.items.filter((i) => turtles[i.turtleId]) })).filter((b) => b.items.length),
+    [allBatches, turtles],
+  );
   const setActive = useFleet((s) => s.setActiveBatch);
   const focus = useFleet((s) => s.focus);
   const batch = batches.find((b) => b.id === activeId) ?? batches[0];

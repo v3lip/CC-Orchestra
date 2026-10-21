@@ -4,8 +4,11 @@ import { needsAttention } from './FleetList';
 
 /** Actionable alerts derived from live turtle state, plus the server's event log. */
 export function ActivityLog() {
-  const events = useFleet((s) => s.events);
+  const allEvents = useFleet((s) => s.events);
   const turtles = useFleet((s) => s.turtles);
+  const allTurtles = useFleet((s) => s.allTurtles);
+  // Events of turtles in other instances are not shown; fleet-wide ones are.
+  const events = useMemo(() => allEvents.filter((e) => !e.turtleId || !allTurtles[e.turtleId] || turtles[e.turtleId]), [allEvents, allTurtles, turtles]);
   const focus = useFleet((s) => s.focus);
 
   const alerts = useMemo(() => {

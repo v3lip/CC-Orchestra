@@ -91,6 +91,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<BottomTab>('results');
   const live = useFleet((s) => s.live);
   const turtles = useFleet((s) => s.turtles);
+  const anyTurtles = useFleet((s) => Object.keys(s.allTurtles).length > 0);
   const toasts = useFleet((s) => s.toasts);
   const batches = useFleet((s) => s.batches);
 
@@ -129,9 +130,9 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           </button>
           <button
             onClick={() => runBatch(api.stop({ all: true }, 'estop'))}
-            disabled={counts.total === 0}
+            disabled={!anyTurtles}
             className="rounded border border-red-500 bg-red-700 px-3 py-1 text-xs font-black tracking-wider text-white hover:bg-red-600 disabled:opacity-40"
-            title="Emergency-stop every turtle after its current atomic action. Offline turtles are listed as unreachable."
+            title="Emergency-stop every turtle, in every instance, after its current atomic action. Offline turtles are listed as unreachable."
           >
             STOP ALL
           </button>

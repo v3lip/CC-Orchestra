@@ -30,6 +30,7 @@ export function needsAttention(t: TurtleView): boolean {
 
 export function FleetList({ onEnroll }: { onEnroll: () => void }) {
   const turtles = useFleet((s) => s.turtles);
+  const allTurtles = useFleet((s) => s.allTurtles);
   const groups = useFleet((s) => s.groups);
   const selection = useFleet((s) => s.selection);
   const focusId = useFleet((s) => s.focusId);
@@ -46,7 +47,6 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
     const needle = q.trim().toLowerCase();
     const g = groups.find((x) => x.id === groupFilter);
     return Object.values(turtles)
-      .filter((t) => t.world === world)
       .filter((t) => !needle || t.name.toLowerCase().includes(needle) || t.id.toLowerCase().includes(needle) || (t.label ?? '').toLowerCase().includes(needle) || String(t.computerId) === needle)
       .filter((t) => !g || g.memberIds.includes(t.id))
       .filter((t) => {
@@ -66,8 +66,8 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
         }
       })
       .sort((a, b) => Number(a.connection === 'offline') - Number(b.connection === 'offline') || a.name.localeCompare(b.name, undefined, { numeric: true }));
-  }, [turtles, groups, q, filter, groupFilter, world]);
-  const elsewhere = Object.values(turtles).filter((t) => t.world !== world).length;
+  }, [turtles, groups, q, filter, groupFilter]);
+  const elsewhere = Object.values(allTurtles).filter((t) => t.world !== world).length;
 
   const sel = new Set(selection);
   const allVisibleSelected = list.length > 0 && list.every((t) => sel.has(t.id));
@@ -104,7 +104,7 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-edge px-3 py-2">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-dim">
-          Fleet <span className="num text-ink">{Object.keys(turtles).length - elsewhere}</span>
+          Fleet <span className="num text-ink">{Object.keys(turtles).length}</span>
         </h2>
         <button onClick={onEnroll} className="rounded bg-cyan-700/40 px-2 py-0.5 text-xs text-cyan-200 hover:bg-cyan-600/50">
           + Add turtle
@@ -145,7 +145,7 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
             <div key={g.id} className={`group flex items-center gap-1 rounded px-1 py-0.5 text-xs ${groupFilter === g.id ? 'bg-panel-2' : ''}`}>
               <i className="h-2 w-2 shrink-0 rounded-full" style={{ background: g.color }} />
               <button className="flex-1 truncate text-left hover:text-white" title="Select all members" onClick={() => select(g.memberIds)}>
-                {g.name} <span className="num text-dim">({g.memberIds.length})</span>
+                {g.name} <span className="num text-dim">({g.memberIds.filter((m) => turtles[m]).length})</span>
               </button>
               <span className="hidden gap-1 group-hover:flex">
                 <IconBtn title="Show only this group in the list" onClick={() => setGroupFilter(groupFilter === g.id ? '' : g.id)}>
@@ -234,7 +234,7 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
         })}
         {list.length === 0 && (
           <li className="p-4 text-center text-xs text-slate-600">
-            {Object.keys(turtles).length === 0 ? 'No turtles yet. Start the simulator or add a turtle.' : elsewhere && !Object.values(turtles).some((t) => t.world === world) ? `No turtles in "${world}" yet. Add a turtle to pair one into it.` : 'Nothing matches.'}
+            {Object.keys(allTurtles).length === 0 ? 'No turtles yet. Start the simulator or add a turtle.' : elsewhere && !Object.keys(turtles).length ? `No turtles in "${world}" yet. Add a turtle to pair one into it.` : 'Nothing matches.'}
           </li>
         )}
         {elsewhere > 0 && (
