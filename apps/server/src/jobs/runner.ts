@@ -4,7 +4,7 @@
  * state and the observed map, so a run can be stopped at any step and started again
  * from the persisted checkpoint. Movement and traffic rules live in `Mover`.
  */
-import { type Box, type Dir, type Heading, type TunnelParams, type TurtleState, type Vec3, FUEL_ITEMS, HEADING_VECTORS, isOreBlock, oreMatches, sectionBox } from '@ccfleet/protocol';
+import { type Box, type Dir, type Heading, type TunnelParams, type TurtleState, type Vec3, FUEL_ITEMS, HEADING_VECTORS, isOreBlock, isTorchItem, oreMatches, sectionBox } from '@ccfleet/protocol';
 import type { Fleet } from '../fleet';
 import { type Station, eq, fmt, inBox, key, manhattan, sliceStations, tunnelLocal } from './geometry';
 import { Interrupt, JobError, Mover, isProtectedName, sleep } from './mover';
@@ -21,6 +21,14 @@ export function agentSupportsJobs(version: string): boolean {
   return maj > 0 || min >= 3;
 }
 
+/** Placing torches needs the place op (agent 0.3.2). */
+export function agentSupportsTorches(version: string): boolean {
+  const m = /^(?:lua|sim)-(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!m) return false;
+  const [maj, min, patch] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  return maj > 0 || min > 3 || (min === 3 && patch >= 2);
+}
+
 const MAX_RETRIES_PER_CELL = 24;
 const DIR_TEXT: Record<Dir, string> = { front: 'in front of', up: 'above', down: 'below' };
 
@@ -30,6 +38,10 @@ export class JobRunner {
   private lastRouteBroadcast = 0;
   /** Set once the turtle has stood on the dock; the dock is freed when it steps off. */
   private visitedDock = false;
+  /** Cells holding a torch this job placed (persisted). */
+  private torches: Set<string>;
+  /** Said once per stretch without torches, so the log isn't flooded. */
+  private warnedNoTorches = false;
   private m: Mover;
   readonly executor: string;
 
@@ -41,6 +53,7 @@ export class JobRunner {
   ) {
     this.executor = `job:${job.view.id}`;
     this.counted = new Set(job.checkpoint.counted ?? []);
+    this.torches = new Set(job.checkpoint.torches ?? []);
     const v = job.view;
     this.m = new Mover({
       fleet,
@@ -89,6 +102,7 @@ export class JobRunner {
       if (this.cp.servicing === 'back') await this.returnToWork();
       else if (this.cp.servicing) await this.service(this.cp.servicing === 'finish');
       const total = this.v.segments.reduce((n, s) => n + s.length, 0);
+      await this.stockTorchesFirst();
       while (this.cp.slice < total) {
         this.mgr.setPhase(this.job, 'mining');
         await this.mineUnit(this.cp.slice);
@@ -131,6 +145,9 @@ export class JobRunner {
     if (!agentSupportsJobs(version)) {
       throw new JobError('agent_outdated', `The turtle runs agent ${version || 'unknown'}; jobs need 0.3.0 or newer (verified unloading, dig protection). Run "install" on the turtle (no code needed), then resume.`);
     }
+    if (this.v.policy.torches?.enabled && !agentSupportsTorches(version)) {
+      throw new JobError('agent_outdated', `The turtle runs agent ${version || 'unknown'}; placing torches needs 0.3.2 or newer. Run "install" on the turtle (no code needed), then resume.`);
+    }
     this.m.pos();
     this.m.heading();
   }
@@ -143,7 +160,7 @@ export class JobRunner {
   }
 
   private inWork(p: Vec3): boolean {
-    return this.v.segments.some((s) => !!tunnelLocal(s, p)) && !this.v.exclusions.some((b) => inBox(b, p));
+    return this.v.segments.some((s) => !!tunnelLocal(s, p)) && !this.v.exclusions.some((b) => inBox(b, p)) && !this.torches.has(key(p));
   }
 
   private workBox(): Box {
@@ -269,7 +286,81 @@ export class JobRunner {
       for (const c of st.extra) if (this.inWork(c)) await this.clearVertical(c);
       if (this.v.policy.scanWalls) await this.scanWalls(seg, st);
       if (this.v.policy.veins?.ores.length) await this.followVeins();
+      await this.placeTorch(st);
     }
+  }
+
+  // ------------------------------------------------------------------ torches
+
+  /**
+   * Light the work area: a torch on the floor cell under the turtle's walking row (dug
+   * from this station), at least `spacing` blocks from every torch this job placed, and
+   * only where that floor stays (a quarry's upper layers are dug away later).
+   */
+  private async placeTorch(st: Station): Promise<void> {
+    const t = this.v.policy.torches;
+    if (!t?.enabled) return;
+    const cell = { ...st.pos, y: st.pos.y - 1 };
+    if (!st.extra.some((c) => eq(c, cell)) || !this.inWork(cell) || this.inWork({ ...cell, y: cell.y - 1 })) return;
+    if (this.m.known(cell)?.cell === 'solid') return;
+    for (const k of this.torches) {
+      const [x, y, z] = k.split(',').map(Number);
+      if (Math.abs(x - cell.x) < t.spacing && Math.abs(z - cell.z) < t.spacing && Math.abs(y - cell.y) <= 3) return;
+    }
+    const item = this.m.turtle().inventory.find((i) => isTorchItem(i.name));
+    if (!item) {
+      this.v.progress.torchesMissed = (this.v.progress.torchesMissed ?? 0) + 1;
+      if (!this.warnedNoTorches) {
+        this.warnedNoTorches = true;
+        this.mgr.log('warn', `${this.v.name}: out of torches; leaving it dark until the next depot trip (put torches in the fuel chest)`, this.v.turtleId);
+      }
+      this.mgr.broadcast(this.job);
+      return;
+    }
+    if (!eq(this.m.pos(), st.pos)) await this.m.moveTo(st.pos);
+    const r = await this.m.step('place', { dir: 'down', slot: item.slot });
+    await this.m.step('select', { slot: 1 });
+    if (r.status !== 'succeeded') {
+      this.mgr.log('info', `${this.v.name}: couldn't place a torch at ${fmt(cell)} (${r.reason}); trying the next spot`, this.v.turtleId);
+      return;
+    }
+    this.torches.add(key(cell));
+    this.cp.torches = [...this.torches];
+    this.v.progress.torchesPlaced = (this.v.progress.torchesPlaced ?? 0) + 1;
+    this.mgr.save(this.job);
+    this.mgr.broadcast(this.job);
+  }
+
+  /** Torches the rest of the job needs (at most a stack): one per `spacing` of the sections left. */
+  private torchesWanted(): number {
+    const t = this.v.policy.torches;
+    if (!t?.enabled) return 0;
+    let n = 0;
+    let base = 0;
+    for (const s of this.v.segments) {
+      const left = Math.max(0, Math.min(s.length, base + s.length - this.cp.slice));
+      if (left > 0 && s.height >= 2) n += Math.ceil(left / t.spacing) * Math.ceil(s.width / t.spacing);
+      base += s.length;
+    }
+    return Math.min(64, n);
+  }
+
+  private carriedTorches(): number {
+    return this.m
+      .turtle()
+      .inventory.filter((i) => isTorchItem(i.name))
+      .reduce((n, i) => n + i.count, 0);
+  }
+
+  /** At the start of a job that places torches: fetch them from the depot if the turtle has none. */
+  private async stockTorchesFirst(): Promise<void> {
+    if (this.cp.slice > 0 || this.v.progress.trips > 0 || this.torchesWanted() === 0 || this.carriedTorches() > 0) return;
+    if (!this.depot.fuelDir) {
+      this.mgr.log('warn', `${this.v.name}: torches are on, but the depot has no fuel chest to take them from and the turtle has none`, this.v.turtleId);
+      return;
+    }
+    this.mgr.log('info', `${this.v.name}: fetching torches from the depot first`, this.v.turtleId);
+    await this.service(false);
   }
 
   /**
@@ -581,6 +672,76 @@ export class JobRunner {
     this.mgr.setPhase(this.job, 'mining');
   }
 
+  /**
+   * Take fuel (burned right away, up to `fuelTarget`) and torches (kept, up to
+   * `torchesWanted`) from the fuel chest. A turtle can only take the chest's first stack,
+   * so whatever comes out that isn't needed right now is kept aside and put back at the
+   * end; anything that is neither fuel nor a torch is put back and reported.
+   */
+  private async visitFuelChest(dir: Dir, fuelTarget: number, torchesWanted: number): Promise<void> {
+    const giveBack: { slot: number; count: number }[] = [];
+    const putBack = async () => {
+      for (const g of giveBack.splice(0)) {
+        const r = await this.m.step('drop', { dir, slot: g.slot, count: g.count });
+        if (r.status !== 'succeeded') this.mgr.log('warn', `${this.v.name}: couldn't put ${g.count} item(s) back in the fuel chest (${r.reason}); they'll be unloaded next trip`, this.v.turtleId);
+      }
+    };
+    // Torches carried, not counting those set aside to go back.
+    const kept = () => this.carriedTorches() - giveBack.filter((g) => isTorchItem(this.itemIn(g.slot))).reduce((n, g) => n + g.count, 0);
+    for (let i = 0; i < 16; i++) {
+      const st = this.m.turtle();
+      const fuelShort = typeof st.fuel === 'number' && st.fuel < fuelTarget;
+      const torchesShort = kept() < torchesWanted;
+      if (!fuelShort && !torchesShort) break;
+      const slot = this.emptySlot();
+      if (!slot) break;
+      const count = fuelShort ? Math.min(64, Math.max(1, Math.ceil((fuelTarget - (st.fuel as number)) / 80))) : Math.min(64, torchesWanted - kept());
+      const r = await this.m.step('suck', { dir, slot, count });
+      if (r.code === 'no_inventory') throw new JobError('fuel_chest_missing', `No fuel chest ${DIR_TEXT[dir]} the dock. Place one or remove it from the depot settings, then resume.`);
+      const data = r.data as { taken?: number; slots?: { slot: number; name: string; count: number }[] } | undefined;
+      if (!data?.taken) break; // empty
+      for (const s of data.slots ?? []) {
+        if (isTorchItem(s.name)) {
+          // Keep what the job still needs; the rest goes back (it may be the chest's first stack).
+          const keep = Math.max(0, torchesWanted - (kept() - s.count));
+          if (s.count > keep) giveBack.push({ slot: s.slot, count: s.count - keep });
+          continue;
+        }
+        if (!fuelShort) {
+          giveBack.push(s);
+          continue;
+        }
+        await this.m.step('select', { slot: s.slot });
+        // Only what was just taken: the slot may also hold the carried reserve.
+        const burn = await this.m.step('refuel', { count: s.count });
+        if (burn.status !== 'succeeded') {
+          // Neither fuel nor a torch: put it (and anything set aside) back, verified, then tell the operator.
+          giveBack.push(s);
+          await putBack();
+          throw new JobError('fuel_chest_contaminated', `The fuel chest contains ${s.name}, which is neither fuel nor a torch. Remove it, then resume.`);
+        }
+      }
+    }
+    await putBack();
+    await this.m.step('select', { slot: 1 });
+    if (torchesWanted > 0) {
+      if (this.carriedTorches() > 0) this.warnedNoTorches = false;
+      else this.mgr.log('warn', `${this.v.name}: no torches in the fuel chest; carrying on without lighting`, this.v.turtleId);
+    }
+  }
+
+  private itemIn(slot: number): string | undefined {
+    return this.m.turtle().inventory.find((i) => i.slot === slot)?.name;
+  }
+
+  /** First empty slot that isn't reserved for fuel or kept items. */
+  private emptySlot(): number | undefined {
+    const inv = this.m.turtle().inventory;
+    const reserved = new Set([this.v.policy.fuelSlot, ...this.v.policy.keepSlots].filter((s) => s > 0));
+    for (let s = 1; s <= 16; s++) if (!reserved.has(s) && !inv.some((i) => i.slot === s)) return s;
+    return undefined;
+  }
+
   private async unload(): Promise<void> {
     const dir = this.depot.unloadDir;
     const where = `${DIR_TEXT[dir]} the dock at ${fmt(this.depot.dock)}`;
@@ -592,6 +753,7 @@ export class JobRunner {
     const items = [...this.m.turtle().inventory].sort((a, b) => a.slot - b.slot);
     for (const it of items) {
       if (keepSlots.includes(it.slot)) continue;
+      if (this.v.policy.torches?.enabled && isTorchItem(it.name)) continue;
       if (it.slot === fuelSlot && FUEL_ITEMS.has(it.name)) continue;
       const r = await this.m.step('drop', { dir, slot: it.slot });
       if (r.code === 'no_inventory') throw new JobError('chest_missing', `The chest ${where} disappeared while unloading. Nothing was dropped into the world. Replace it, then resume.`);
@@ -606,38 +768,17 @@ export class JobRunner {
   }
 
   private async refuel(final: boolean): Promise<void> {
+    const depot = this.depot;
     let st = this.m.turtle();
-    if (st.fuel === 'unlimited') return;
     const limit = typeof st.fuelLimit === 'number' ? st.fuelLimit : Infinity;
     const target = Math.min(this.v.policy.refuelTarget, limit);
-    const depot = this.depot;
+
+    // 1. The fuel chest, if the depot has one: fuel, and torches for the job.
+    if (depot.fuelDir) await this.visitFuelChest(depot.fuelDir, typeof st.fuel === 'number' ? target : 0, final ? 0 : this.torchesWanted());
+    st = this.m.turtle();
+    if (st.fuel === 'unlimited') return;
     const resume = this.cp.resume?.pos ?? this.v.segments[0].origin;
     const need = final ? 0 : 2 * this.costBetween(depot.dock, resume) + this.v.policy.fuelReserve;
-
-    // 1. Top up from the fuel chest, if the depot has one.
-    if (typeof st.fuel === 'number' && st.fuel < target && depot.fuelDir) {
-      const slot = this.v.policy.fuelSlot || 1;
-      for (let i = 0; i < 6; i++) {
-        st = this.m.turtle();
-        if (typeof st.fuel !== 'number' || st.fuel >= target) break;
-        const want = Math.min(64, Math.max(1, Math.ceil((target - st.fuel) / 80)));
-        const r = await this.m.step('suck', { dir: depot.fuelDir, slot, count: want });
-        if (r.code === 'no_inventory') throw new JobError('fuel_chest_missing', `No fuel chest ${DIR_TEXT[depot.fuelDir]} the dock. Place one or remove it from the depot settings, then resume.`);
-        const data = r.data as { taken?: number; slots?: { slot: number; name: string; count: number }[] } | undefined;
-        if (!data?.taken) break; // empty
-        for (const s of data.slots ?? []) {
-          await this.m.step('select', { slot: s.slot });
-          // Only what was just taken: the slot may also hold the carried reserve.
-          const burn = await this.m.step('refuel', { count: s.count });
-          if (burn.status !== 'succeeded') {
-            // Not fuel: put it back where it came from (verified), then tell the operator.
-            await this.m.step('drop', { dir: depot.fuelDir, slot: s.slot });
-            throw new JobError('fuel_chest_contaminated', `The fuel chest contains ${s.name}, which is not fuel. Remove it, then resume.`);
-          }
-        }
-      }
-      await this.m.step('select', { slot: 1 });
-    }
 
     // 2. Only burn the carried reserve if that is the only way to continue.
     st = this.m.turtle();

@@ -87,6 +87,10 @@ Tunnels and quarries can also be **shared** between turtles: split into side-by-
 
 `GET /api/map/ores?world&dimension` lists ore blocks seen and still in place (map cell solid, id matching `isOreBlock`). The dashboard's **Ores** tab groups them by block and into veins (face-touching blocks of the same id), sorts by distance from the focused turtle (else the depot), and centres the map on a vein when clicked.
 
+### Torches (job policy)
+
+`policy.torches {enabled, spacing}`: after a station's cells are cleared, the runner places a torch (`place down`) into the floor cell under the turtle's walking row (the row it digs from above), if that cell was cleared from this station, the block under it is not part of the work volume (so it stays; in a quarry only the bottom band qualifies), and no torch this job placed is within `spacing` blocks (horizontal Chebyshev distance). Placed torches are kept in the checkpoint and excluded from the work volume, so the turtle never digs or walks through them. Torches come from the depot's fuel chest: at job start if the turtle has none, and on every trip, up to what the remaining sections need (max 64). Since `turtle.suck` only takes the first stack, anything taken but not needed is put back at the end of the visit. Unloading keeps torches. Out of torches, the spot is left dark (`progress.torchesMissed`) until the next trip.
+
 ### Seeing what's around: wall scanning and vein following (job policy)
 
 - **Scan the walls** (`policy.scanWalls`): at each column the turtle looks at every outer face of the work area it hasn't seen yet: side walls on the first/last column, end walls on the first/last slice, the ceiling and the floor. It visits each row of the column (moving in already looks up and down), turns and inspects, then returns to the column's station. Inner faces (next to other parts of the work area) are skipped. Costs about 2 vertical moves per column plus turns.

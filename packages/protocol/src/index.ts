@@ -162,6 +162,8 @@ export const OpArgs = {
   suck: z.object({ dir: Dir, slot: int().min(1).max(16), count: int().min(1).max(64).optional() }).strict(),
   /** Describe an adjacent inventory: size, used slots, item totals. */
   inventoryInfo: z.object({ dir: Dir }).strict(),
+  /** Place the item in `slot` (e.g. a torch) into the adjacent cell; the agent then looks at it. */
+  place: z.object({ dir: Dir, slot: int().min(1).max(16) }).strict(),
 } as const;
 export type Op = keyof typeof OpArgs;
 export const OPS = Object.keys(OpArgs) as Op[];
@@ -171,7 +173,7 @@ export const MOVE_OPS: ReadonlySet<Op> = new Set(['forward', 'back', 'up', 'down
 export const TURN_OPS: ReadonlySet<Op> = new Set(['turnLeft', 'turnRight']);
 export const DIG_OPS: ReadonlySet<Op> = new Set(['dig', 'digUp', 'digDown']);
 /** Operations refused while a turtle is held (paused or emergency-stopped). */
-export const PHYSICAL_OPS: ReadonlySet<Op> = new Set([...MOVE_OPS, ...TURN_OPS, ...DIG_OPS, 'refuel', 'drop', 'suck']);
+export const PHYSICAL_OPS: ReadonlySet<Op> = new Set([...MOVE_OPS, ...TURN_OPS, ...DIG_OPS, 'refuel', 'drop', 'suck', 'place']);
 
 /** Normalised failure codes. Agents also pass CC's raw reason string. */
 export const ErrorCode = z.enum([
@@ -529,6 +531,13 @@ export const DEFAULT_PROTECTED_BLOCKS = ['chest', 'barrel', 'shulker_box', 'comp
 /** Items accepted as turtle fuel when deciding what to keep in the fuel slot. */
 export const FUEL_ITEMS = new Set(['minecraft:coal', 'minecraft:charcoal', 'minecraft:coal_block', 'minecraft:blaze_rod', 'minecraft:lava_bucket']);
 
+/** A torch item jobs can place: minecraft:torch, soul_torch, modded "...:torch" (not redstone torches). */
+export function isTorchItem(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const n = name.toLowerCase();
+  return /(^|[:_])torch$/.test(n) && !n.includes('redstone');
+}
+
 export const DepotInput = z.object({
   name: z.string().min(1).max(40),
   world: z.string().min(1).max(40),
@@ -663,6 +672,17 @@ export const JobPolicy = z.object({
       reach: int().min(1).max(16).default(6),
     })
     .default({}),
+  /**
+   * Light the work area: place a torch on the floor under the turtle's walking row, at
+   * least `spacing` blocks from the last one, wherever that floor isn't dug later. Torches
+   * come from the depot's fuel chest; they are never unloaded.
+   */
+  torches: z
+    .object({
+      enabled: z.boolean().default(false),
+      spacing: int().min(4).max(32).default(10),
+    })
+    .default({}),
 });
 export type JobPolicy = z.infer<typeof JobPolicy>;
 
@@ -767,6 +787,9 @@ export interface JobView {
     finds?: Record<string, number>;
     /** Ore blocks mined by following veins outside the work area. */
     veinBlocks?: number;
+    /** Torches placed, and spots left dark because the turtle had none. */
+    torchesPlaced?: number;
+    torchesMissed?: number;
   };
   estimate: JobEstimate;
   /** Next cells on the turtle's planned route (for the map). */

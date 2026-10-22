@@ -325,6 +325,9 @@ turtle = {
   suck = function(n) return task("suck", n) end,
   suckUp = function(n) return task("suckUp", n) end,
   suckDown = function(n) return task("suckDown", n) end,
+  place = function() return task("place") end,
+  placeUp = function() return task("placeUp") end,
+  placeDown = function() return task("placeDown") end,
   select = function(s)
     if type(s) ~= "number" or s < 1 or s > 16 then error("Slot out of range", 2) end
     __turtle_select(s) return true

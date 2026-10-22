@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import luaparse from 'luaparse';
-import type { CCTurtle } from '@ccfleet/sim';
+import type { CCTurtle, TurtleBody } from '@ccfleet/sim';
 import { TURTLE_DIR, openWorld, settle, spawnLuaTurtle, startServer, waitFor } from './helpers';
 
 type Server = Awaited<ReturnType<typeof startServer>>;
@@ -80,6 +80,25 @@ describe('Lua agent: install, pairing, telemetry', () => {
     await waitFor(() => server.fleet.getTurtle(id)?.connection === 'online' && t.status === 'running', 5000);
     expect(server.fleet.listTurtles()).toHaveLength(1);
     expect(t.state.creds.turtleId).toBe(id);
+  });
+});
+
+describe('Lua agent: placing', () => {
+  it('places a torch on the floor below, maps it, and fails cleanly where there is no room', async () => {
+    const { server, world } = await setup();
+    world.set(0, 99, 0, null);
+    world.set(0, 98, 0, { name: 'minecraft:stone' });
+    const slots: TurtleBody['slots'] = Array(16).fill(null);
+    slots[1] = { name: 'minecraft:torch', count: 64 };
+    const t = await spawn(server, world, { x: 0, y: 100, z: 0, heading: 0 }, { slots });
+    const r = await cmd(server, t.turtleId, 'place', { dir: 'down', slot: 2 });
+    expect(r.items[0]).toMatchObject({ status: 'succeeded', data: { item: 'minecraft:torch' } });
+    expect(world.get(0, 99, 0)?.name).toBe('minecraft:torch');
+    expect(t.body.slots[1]?.count).toBe(63);
+    await waitFor(() => server.fleet.mapCell('sim', 'minecraft:overworld', { x: 0, y: 99, z: 0 })?.block === 'minecraft:torch', 3000, 'torch on the map');
+    const again = await cmd(server, t.turtleId, 'place', { dir: 'down', slot: 2 });
+    expect(again.items[0]).toMatchObject({ status: 'failed', reason: 'Cannot place block here' });
+    expect((await cmd(server, t.turtleId, 'place', { dir: 'down', slot: 5 })).items[0]).toMatchObject({ status: 'failed', reason: 'slot 5 is empty' });
   });
 });
 

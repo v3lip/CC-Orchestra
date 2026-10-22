@@ -80,7 +80,8 @@ A depot is one **dock cell** where a turtle parks, plus chests next to it:
 ```
 
 - **Unload chest** (`C`): in front of, above, or below the dock. A double chest is fine. Turtles only drop items when that block is an inventory. If it's missing, the job pauses with "No chest…" and nothing is spilled.
-- **Fuel chest** (`F`, optional): on a different side. Keep **only fuel** in it (coal, charcoal, coal blocks). It does not refill itself: you or a farm/hopper must keep it stocked. If something that isn't fuel turns up, the turtle puts it back and the job pauses.
+- **Fuel chest** (`F`, optional): on a different side. Keep **fuel** in it (coal, charcoal, coal blocks), and **torches** if your jobs place them. It does not refill itself: you or a farm/hopper must keep it stocked. A turtle can only take the chest's first stack, so it sets aside whatever it doesn't need right then and puts it back before leaving. Anything that's neither fuel nor a torch is put back and the job pauses.
+- **Torches** (job option *Place torches*): the turtle takes what the job needs from the fuel chest (up to a stack) before it starts and on every trip, and never unloads them. It puts them on the floor under its walking row, so tunnels need to be at least 2 high; in a quarry only the bottom floor gets them.
 - **Fuel slot** (default slot 16): fuel the turtle carries. It's kept when unloading and only burned when the turtle would otherwise run short.
 - Set it up in the dashboard: park a turtle on the dock facing the way you want, select it → **Depots** → **New depot** → "Use … as the dock", then choose where the chests are.
 - Keep the dock and the route between the dock and the tunnel open (air). Jobs only dig inside their own tunnel volume, never on the way there.

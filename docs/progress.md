@@ -1,5 +1,13 @@
 # Progress notes
 
+## Torches in jobs (2026-10-22)
+
+- New job option **Place torches** (every N blocks, default 10). The turtle puts a torch on the floor cell under the row it walks in, which it digs from above anyway, so torches never block its way; they're excluded from the work area so it never digs them on the way back. In a quarry only the bottom floor gets torches (the floors above are dug away). Tunnels must be at least 2 high; the form says so.
+- Torches come from the depot's **fuel chest**: before the job starts (if the turtle has none) and on every trip, up to what the rest of the job needs (max a stack). Unloading keeps them. Since a turtle can only take a chest's first stack, the fuel-chest visit now sets aside whatever it doesn't need right then (extra torches, or coal when fuel is full) and puts it back before leaving. Torches in the fuel chest no longer stop jobs that don't place them with "not fuel".
+- New agent op `place {dir, slot}` (agent 0.3.2, Lua and simulated; the simulator places wall or standing torches in CC's order). Jobs with torches ask for 0.3.2. The job card counts torches placed and spots left dark.
+- Tests: the Lua agent places, maps and refuses; a tunnel with torches first in the fuel chest (3 torches 8 apart on the floor, the rest given back, coal still reached); torches left alone when the option is off; a quarry lighting only its bottom floor; the same tunnel job with the real Lua agent. Not yet tried in-game: checklist steps 44-46.
+
+
 ## "Movement failed" in claimed chunks (2026-10-21)
 
 - In-game (FTB Evolution, 1.21.1): a turtle couldn't move into a chunk claimed with FTB Chunks; CC only said `Movement failed`, and unclaiming fixed it. CC: Tweaked's own checks (block, fuel, loaded chunk, its protected-area check) pass, then placing the turtle at the new cell is refused: that's the claim's protection against fake players (`fake_players: "check"`, team default "allow fake players" off).

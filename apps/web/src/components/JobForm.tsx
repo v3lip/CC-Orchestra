@@ -89,6 +89,8 @@ function initialForm(turtleId: string, depotId: string) {
     customOres: '',
     veinMax: '48',
     veinReach: '6',
+    torches: false,
+    torchSpacing: '10',
   };
 }
 
@@ -247,9 +249,16 @@ export function JobForm({ onDone }: { onDone: () => void }) {
         maxBlocks: Number(v.veinMax) || 48,
         reach: Number(v.veinReach) || 6,
       },
+      torches: { enabled: v.torches, spacing: Math.min(32, Math.max(4, Number(v.torchSpacing) || 10)) },
     }),
     [v],
   );
+
+  const torchWarnings: string[] = [];
+  if (v.torches) {
+    if (v.depotId && !depotMap[v.depotId]?.fuelDir) torchWarnings.push("This depot has no fuel chest to take torches from: give the turtle torches yourself before starting.");
+    if (v.strategy !== 'quarry' && Number(v.height) < 2) torchWarnings.push("A 1-high tunnel has no floor beside the turtle's path for torches: make it at least 2 high.");
+  }
 
   const inputs = useMemo(
     (): JobInput[] =>
@@ -545,6 +554,34 @@ export function JobForm({ onDone }: { onDone: () => void }) {
           When it sees a matching ore near the work area, it mines the whole connected vein (looking around at every block), then goes back and continues. Outside the work area it only ever digs the
           matching ore. {policy.veins.ores.length > 0 && !v.scanWalls ? 'Tip: turn on wall scanning, or it only sees ores in front, above and below.' : ''}
         </p>
+      </div>
+
+      <div className="rounded border border-edge bg-panel-2 p-2">
+        <div className="mb-1 text-[10px] uppercase tracking-wide text-dim">Lighting</div>
+        <label className="flex items-start gap-1 text-[11px]">
+          <input type="checkbox" className="mt-0.5" checked={v.torches} onChange={(e) => setV({ ...v, torches: e.target.checked })} />
+          <span>
+            Place torches <span className="text-dim">(on the floor, out of the turtle's way, so mobs don't spawn in the tunnels)</span>
+          </span>
+        </label>
+        {v.torches && (
+          <>
+            <div className="mt-1 grid grid-cols-2 gap-1">
+              <Field label="Blocks between torches">
+                <input value={v.torchSpacing} onChange={set('torchSpacing')} className="inp num" />
+              </Field>
+            </div>
+            <p className="mt-1 text-[11px] text-dim">
+              Put torches in the depot's <b>fuel chest</b>, next to the fuel: the turtle takes what the job needs (up to a stack) before it starts and on every trip, and never unloads them.
+              {v.strategy === 'quarry' && ' In a quarry only the bottom floor gets torches: the floors above are dug away.'}
+            </p>
+            {torchWarnings.map((w) => (
+              <p key={w} className="mt-1 text-[11px] text-amber-300">
+                {w}
+              </p>
+            ))}
+          </>
+        )}
       </div>
 
       {(drafts.length > 1 || skipped.length > 0) && (

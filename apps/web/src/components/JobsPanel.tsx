@@ -154,6 +154,11 @@ function JobCard({ job }: { job: JobView }) {
         <span>{p.cellsCleared} cells</span>
         {p.cellsSkipped > 0 && <span className="text-amber-300">{p.cellsSkipped} skipped</span>}
         {(p.veinBlocks ?? 0) > 0 && <span className="text-sky-300">{p.veinBlocks} from veins</span>}
+        {(p.torchesPlaced ?? 0) + (p.torchesMissed ?? 0) > 0 && (
+          <span className="text-amber-200" title="Torches placed (and spots left dark because the turtle had none)">
+            {p.torchesPlaced ?? 0} torches{p.torchesMissed ? `, ${p.torchesMissed} missed` : ''}
+          </span>
+        )}
         <span>{p.trips} trips</span>
         <span>{p.itemsUnloaded} items unloaded</span>
       </div>

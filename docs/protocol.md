@@ -45,15 +45,16 @@ turtle → result {commandId, status: succeeded | failed | cancelled, code?, rea
 Rules both sides enforce:
 
 1. **One executor.** The server sends at most one command per turtle and waits for its result before sending the next (per-turtle FIFO queue, max 16). The agent also rejects with `busy` if a command arrives while one runs.
-2. **Whitelisted ops only:** `forward back up down turnLeft turnRight dig digUp digDown inspect inspectUp inspectDown select refuel calibrate gpsLocate setLabel drop suck inventoryInfo`. There is no remote-code operation.
+2. **Whitelisted ops only:** `forward back up down turnLeft turnRight dig digUp digDown inspect inspectUp inspectDown select refuel calibrate gpsLocate setLabel drop suck inventoryInfo place`. There is no remote-code operation.
    - `dig*` `{force?}`: the agent refuses (`protected`) to dig any block that is an inventory peripheral (chests, other turtles…), always. It also refuses blocks whose id contains a protected pattern (`welcome.config.protectedBlocks`, e.g. `chest`, `computercraft:`, `spawner`), unless `force` is set.
    - `drop {dir, slot, count?}`: **verified drop** into the inventory `front`/`up`/`down`. It refuses with `no_inventory` unless `peripheral.wrap(side)` is an inventory (checked before *and* right before dropping), because `turtle.drop` with no inventory throws items into the world. The result data is `{item, dropped, requested, partial, chestGain, verified}`; `verified` is false if the chest count didn't rise by `dropped` (e.g. a hopper draining it). Nothing accepted → `inventory_full`.
    - `suck {dir, slot, count?}`: only from an inventory (never item entities). Data: `{taken, slots[]}`.
    - `inventoryInfo {dir}` → `{block, size, used, free, items[]}`, or `no_inventory`.
+   - `place {dir, slot}` (agent 0.3.2): places the item in `slot` (jobs use it for torches) into the adjacent cell, then inspects that cell. Data: `{item}`. Fails with CC's reason (`Cannot place block here`) or `slot N is empty`.
    - Jobs require agent ≥ 0.3.0, which has these ops and the dig guard.
 3. **Duplicates.** If a `commandId` is already in `recent`, the agent never runs it again. It re-sends the cached result (`duplicate: true`), or acks `duplicate` if it is still running.
 4. **Expiry.** `expiresAt` is server time. The agent corrects for clock skew using `welcome.serverTime` and refuses to *start* an expired command (`rejected`/`expired`). The server expires commands still sitting in its queue.
-5. **Held turtles** (paused or e-stopped) reject physical ops (`move/turn/dig/refuel/drop/suck`) with `held`. Inspect, calibrate and GPS are still allowed.
+5. **Held turtles** (paused or e-stopped) reject physical ops (`move/turn/dig/refuel/drop/suck/place`) with `held`. Inspect, calibrate and GPS are still allowed.
 6. **Connection loss.** The current atomic op finishes. Nothing else runs, because every action comes from the server. The server marks the in-flight command `unknown` (never "failed" or "succeeded" by assumption) and cancels anything queued; queued commands are **not** replayed after reconnect.
 
 Failure codes: `obstructed out_of_fuel unbreakable nothing_to_dig protected busy held expired invalid no_gps pose_unknown no_inventory inventory_full unverified failed internal`. CC's raw reason string travels in `reason`.

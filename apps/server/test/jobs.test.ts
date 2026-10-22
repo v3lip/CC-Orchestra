@@ -343,6 +343,22 @@ describe('tunnel job (real Lua agent)', () => {
     return t;
   }
 
+  it('places torches from the fuel chest (real agent end to end)', async () => {
+    const { server, world, depot } = await setup({ fuelChest: true });
+    const fuelChest = world.inventories.get('0,99,0')!;
+    fuelChest[0] = { name: 'minecraft:torch', count: 64 };
+    const t = await lua(server, world, { fuel: 2000 });
+    const job = server.jobs.createJob(tunnel(t.turtleId, depot.id, { length: 16 }, { torches: { enabled: true, spacing: 8 } }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    const placed = Array.from({ length: 16 }, (_, d) => 2 + d).filter((x) => world.get(x, 100, 0)?.name === 'minecraft:torch');
+    expect(placed).toHaveLength(2);
+    expect(done.progress.torchesPlaced).toBe(2);
+    expect(world.spilled).toBe(0);
+  });
+
   it('mines, returns and unloads with verified drops', async () => {
     const { server, world, depot } = await setup();
     const t = await lua(server, world, { slots: slots({ 16: { name: 'minecraft:coal', count: 5 } }) });
@@ -657,5 +673,83 @@ describe('agent version gate', () => {
     expect(agentSupportsJobs('sim-0.3.0')).toBe(true);
     expect(agentSupportsJobs('lua-1.0.0')).toBe(true);
     expect(agentSupportsJobs('')).toBe(false);
+  });
+});
+
+describe('torches', () => {
+  const torchesIn = (inv: ({ name: string; count: number } | null)[] | undefined) => (inv ?? []).reduce((n, s) => n + (s?.name === 'minecraft:torch' ? s.count : 0), 0);
+
+  it('fetches torches from the fuel chest, lights the tunnel floor every N blocks, and gives back the rest', async () => {
+    const { server, world, depot } = await setup({ fuelChest: true });
+    // Torches first: a turtle can only take the chest's first stack, so it has to set the
+    // extra torches aside to reach the coal, and put them back.
+    const fuelChest = world.inventories.get('0,99,0')!;
+    fuelChest[0] = { name: 'minecraft:torch', count: 64 };
+    fuelChest[1] = { name: 'minecraft:coal', count: 32 };
+    const t = await sim(server, world, { fuel: 300 });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 24 }, { refuelTarget: 800, torches: { enabled: true, spacing: 8 } }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    // On the floor row (the turtle walks in the row above), 8 apart, nothing else dug away.
+    const placed = Array.from({ length: 24 }, (_, d) => 2 + d).filter((x) => world.get(x, 100, 0)?.name === 'minecraft:torch');
+    expect(placed).toHaveLength(3);
+    for (let i = 1; i < placed.length; i++) expect(placed[i] - placed[i - 1]).toBeGreaterThanOrEqual(8);
+    expect(Array.from({ length: 24 }, (_, d) => world.get(2 + d, 101, 0)).filter(Boolean)).toEqual([]);
+    expect(done.progress.torchesPlaced).toBe(3);
+    // It took only what the job needed, kept them through unloading, and put the rest back.
+    expect(torchesIn(world.inventories.get('-1,100,0'))).toBe(0);
+    expect(torchesIn(fuelChest) + torchesIn(t.body.slots) + placed.length).toBe(64);
+    expect(torchesIn(fuelChest)).toBeGreaterThanOrEqual(60);
+    expect(fuelChest.reduce((n, s) => n + (s?.name === 'minecraft:coal' ? s.count : 0), 0)).toBeLessThan(32);
+    expect(world.spilled).toBe(0);
+  });
+
+  it('torches in the fuel chest are left alone (not "contamination") when a job does not place them', async () => {
+    const { server, world, depot } = await setup({ fuelChest: true });
+    const fuelChest = world.inventories.get('0,99,0')!;
+    fuelChest[0] = { name: 'minecraft:torch', count: 64 };
+    fuelChest[1] = { name: 'minecraft:coal', count: 32 };
+    const t = await sim(server, world, { fuel: 140 });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 8 }, { fuelReserve: 120, refuelTarget: 800 }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    expect(torchesIn(fuelChest)).toBe(64);
+    expect(torchesIn(t.body.slots)).toBe(0);
+    expect(typeof t.body.fuel === 'number' && t.body.fuel > 500).toBe(true);
+  });
+
+  it('a quarry only lights its bottom floor (the floors above are dug away)', async () => {
+    const { server, world, depot } = await setup({ chestSize: 54 });
+    const t = await sim(server, world, { fuel: 3000, slots: slots({ 2: { name: 'minecraft:torch', count: 16 } }) });
+    const job = server.jobs.createJob({
+      name: 'Quarry',
+      strategy: 'quarry',
+      params: { origin: { x: 2, y: 103, z: 0 }, heading: 1, width: 3, length: 6, depth: 6 },
+      depotId: depot.id,
+      turtleId: t.turtleId!,
+      policy: { torches: { enabled: true, spacing: 4 } },
+    });
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    const torches: { x: number; y: number; z: number }[] = [];
+    for (let x = 2; x < 8; x++) for (let y = 98; y <= 103; y++) for (let z = 0; z < 3; z++) if (world.get(x, y, z)?.name === 'minecraft:torch') torches.push({ x, y, z });
+    expect(torches.length).toBeGreaterThanOrEqual(2);
+    expect(torches.every((p) => p.y === 98)).toBe(true);
+    for (const a of torches) for (const b of torches) if (a !== b) expect(Math.max(Math.abs(a.x - b.x), Math.abs(a.z - b.z))).toBeGreaterThanOrEqual(4);
+    expect(done.progress.torchesPlaced).toBe(torches.length);
+  });
+
+  it('needs agent 0.3.2 to place torches', async () => {
+    const { agentSupportsTorches } = await import('../src/jobs/runner');
+    expect(agentSupportsTorches('lua-0.3.1')).toBe(false);
+    expect(agentSupportsTorches('lua-0.3.2')).toBe(true);
+    expect(agentSupportsTorches('sim-0.4.0')).toBe(true);
+    expect(agentSupportsTorches('lua-1.0.0')).toBe(true);
   });
 });

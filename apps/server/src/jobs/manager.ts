@@ -44,6 +44,8 @@ export interface JobRec {
     servicing?: 'trip' | 'finish' | 'back';
     /** Cells of slices not yet complete that are already counted in cellsCleared. */
     counted?: string[];
+    /** Torches this job placed: never dug, never walked through. */
+    torches?: string[];
   };
 }
 

@@ -302,6 +302,11 @@ export class CCTurtle {
           const r = name.startsWith('drop') ? physics.drop(this.world, body, dir(name), arg ?? undefined) : physics.suck(this.world, body, dir(name), arg ?? undefined);
           respond(r.ok, r.ok ? undefined : r.reason);
         });
+      } else if (/^place(Up|Down)?$/.test(name)) {
+        later(quick, () => {
+          const r = physics.place(this.world, body, dir(name));
+          respond(r.ok, r.ok ? undefined : r.reason);
+        });
       } else if (name === 'refuel') {
         later(quick, () => {
           const r = physics.refuel(body, arg ?? undefined);

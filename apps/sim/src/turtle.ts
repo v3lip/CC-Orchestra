@@ -39,7 +39,7 @@ import {
 import { SimWorld, type TurtleBody } from './world';
 import * as physics from './physics';
 
-export const SIM_AGENT_VERSION = 'sim-0.3.1';
+export const SIM_AGENT_VERSION = 'sim-0.3.2';
 
 export interface Journal {
   commandId: string;
@@ -584,6 +584,17 @@ export class SimTurtle {
         const r = physics.suck(this.world, b, dir, args.count as number | undefined);
         const slots = b.slots.flatMap((s, i) => ((s?.count ?? 0) > before[i] ? [{ slot: i + 1, name: s!.name, count: s!.count - before[i] }] : []));
         return { ok: true, data: { taken: slots.reduce((t, x) => t + x.count, 0), slots, ...(r.ok ? {} : { reason: r.reason }) } };
+      }
+      case 'place': {
+        const dir = args.dir as physics.Dir;
+        const item = b.slots[(args.slot as number) - 1];
+        if (!item) return { ok: false, code: 'failed', reason: `slot ${args.slot} is empty` };
+        await this.physical(gen);
+        b.selected = args.slot as number;
+        const r = physics.place(this.world, b, dir);
+        await this.scan(gen, [dir]);
+        if (!r.ok) return { ok: false, code: classifyReason(r.reason), reason: r.reason };
+        return { ok: true, data: { item: item.name } };
       }
       case 'inventoryInfo': {
         const dir = args.dir as physics.Dir;

@@ -37,6 +37,7 @@ const DROPS: Record<string, { name: string; count: number }> = {
   'minecraft:diamond_ore': { name: 'minecraft:diamond', count: 1 },
   'minecraft:redstone_ore': { name: 'minecraft:redstone', count: 4 },
   'minecraft:lapis_ore': { name: 'minecraft:lapis_lazuli', count: 5 },
+  'minecraft:wall_torch': { name: 'minecraft:torch', count: 1 },
 };
 
 const FUEL_VALUES: Record<string, number> = {

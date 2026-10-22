@@ -9,7 +9,7 @@
 --   * remember recent command ids so a re-delivered command never runs twice
 --   * when the connection drops, finish the current atomic op, then do nothing
 
-local AGENT_VERSION = "lua-0.3.1"
+local AGENT_VERSION = "lua-0.3.2"
 local PROTOCOL = 1
 local DIR = "/fleet"
 local CONFIG_FILE = DIR .. "/config.json"
@@ -496,6 +496,20 @@ local function doSuck(cmd)
   return okResult({ taken = taken, slots = slots, reason = (not ok) and tostring(reason) or nil })
 end
 
+local PLACE = { front = "place", up = "placeUp", down = "placeDown" }
+
+-- Place the item in a slot (a torch, for jobs) into the adjacent cell, then look at it.
+local function doPlace(cmd)
+  local a = cmd.args
+  local item = turtle.getItemDetail(a.slot)
+  if not item then return fail("failed", "slot " .. a.slot .. " is empty") end
+  turtle.select(a.slot)
+  local ok, reason = turtle[PLACE[a.dir]]()
+  scan({ a.dir })
+  if not ok then return fail(classify(reason), reason) end
+  return okResult({ item = item.name })
+end
+
 local function doInventoryInfo(cmd)
   local inv = inventoryAt(cmd.args.dir)
   if not inv then return fail("no_inventory", "no inventory " .. cmd.args.dir) end
@@ -598,6 +612,8 @@ local function execute(cmd)
     return doSuck(cmd)
   elseif op == "inventoryInfo" then
     return doInventoryInfo(cmd)
+  elseif op == "place" then
+    return doPlace(cmd)
   end
   return fail("invalid", "unsupported op " .. tostring(op))
 end
@@ -606,7 +622,7 @@ end
 
 local PHYSICAL = {
   forward = true, back = true, up = true, down = true, turnLeft = true, turnRight = true,
-  dig = true, digUp = true, digDown = true, refuel = true, drop = true, suck = true,
+  dig = true, digUp = true, digDown = true, refuel = true, drop = true, suck = true, place = true,
 }
 
 local DIRS = { front = true, up = true, down = true }
@@ -620,6 +636,7 @@ local VALIDATE = {
   drop = function(a) return DIRS[a.dir] and isInt(a.slot, 1, 16) and (a.count == nil or isInt(a.count, 1, 64)) end,
   suck = function(a) return DIRS[a.dir] and isInt(a.slot, 1, 16) and (a.count == nil or isInt(a.count, 1, 64)) end,
   inventoryInfo = function(a) return DIRS[a.dir] == true end,
+  place = function(a) return DIRS[a.dir] and isInt(a.slot, 1, 16) end,
   select = function(a) return isInt(a.slot, 1, 16) end,
   refuel = function(a) return a.count == nil or isInt(a.count, 0, 64) end,
   calibrate = function(a) return isInt(a.x) and isInt(a.y) and isInt(a.z) and isInt(a.heading, 0, 3) end,

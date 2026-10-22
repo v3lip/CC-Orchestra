@@ -68,6 +68,12 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 42. [ ] **+ Add turtle** in that instance and run `install <code>` on a turtle in the other world: it appears there only, and its map starts empty. Switch back with the header list: your old turtles and map are untouched (and still online if that world is running).
 43. [ ] Header list → **Manage instances…**: counts are right. Rename the new instance: its turtle stays connected. Deleting an instance with online turtles is refused.
 
+### Torches (agent 0.3.2: run `install` on each turtle first)
+
+44. [ ] Put a stack of torches **and** some coal in the depot's fuel chest (torches in the first slot). New job → Tunnel, 2 high, 32 long → **Place torches** every 10 → Create & start. The turtle goes to the depot first, takes a few torches, and puts the rest back.
+45. [ ] In the tunnel: torches stand on the floor every ~10 blocks, under the row the turtle walks in, and the turtle never digs them on its way back. The job card counts them. Report if any torch ends up on a wall or ceiling, or isn't placed (the job log says why).
+46. [ ] With **Place torches** off, torches in the fuel chest are left alone (the job doesn't pause with "not fuel").
+
 ### Chunky turtles (Chunk Controller)
 
 15. [ ] Equip a Chunk Controller on a turtle's free side (or craft a Chunky Turtle), then run `install` on it (agent `lua-0.3.1`). The dashboard shows **CHUNK** in the fleet list, and the details panel shows `chunky` on that side.
