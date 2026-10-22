@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { MAX_MESSAGE_BYTES, StopReason } from '@ccfleet/protocol';
+import { runningCode } from './codeVersion';
 import type { Config } from './config';
 import { openDb, type Db } from './db';
 import { ApiError, Fleet, type FleetOptions } from './fleet';
@@ -24,6 +25,8 @@ const TargetsSchema = z.object({
 });
 
 export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?: Db; logger?: boolean; turtleRateLimit?: number } = {}) {
+  // Fingerprint the code now: files may change later (an update) while this keeps running.
+  runningCode();
   const db = opts.db ?? openDb(config.dbFile);
   const fleet = new Fleet(db, opts.fleet);
   const jobs = new JobManager(db, fleet);

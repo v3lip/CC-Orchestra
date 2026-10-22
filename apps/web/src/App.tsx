@@ -13,6 +13,7 @@ import { JobsPanel } from './components/JobsPanel';
 import { DepotsPanel } from './components/DepotsPanel';
 import { OresPanel } from './components/OresPanel';
 import { MapContextMenu } from './components/MapContextMenu';
+import { codeMismatch } from './lib/codeCheck';
 
 export function App() {
   const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking');
@@ -138,6 +139,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           </button>
         </div>
       </header>
+      <StaleCodeBanner />
 
       <div className="flex min-h-0 flex-1">
         <aside className="w-72 shrink-0 border-r border-edge bg-panel">
@@ -329,4 +331,26 @@ function RightPanel() {
   if (tab === 'depots') return <DepotsPanel />;
   if (tab === 'ores') return <OresPanel />;
   return <DetailsPanel />;
+}
+
+/** The running backend isn't the code this dashboard was built from (not restarted after an update?). */
+function StaleCodeBanner() {
+  const server = useFleet((s) => s.server);
+  // In development the server restarts on every edit; the check would only nag.
+  const mismatch = import.meta.env.DEV ? undefined : codeMismatch(server, { fingerprint: __BACKEND_FINGERPRINT__, at: __BUILT_AT__ });
+  if (!mismatch) return null;
+  return (
+    <div className="shrink-0 border-b border-amber-700 bg-amber-950/80 px-3 py-1.5 text-xs text-amber-100">
+      {mismatch === 'backend_older' ? (
+        <>
+          <b>Restart the backend:</b> it's still running older code than this dashboard{server ? ` (started ${new Date(server.startedAt).toLocaleString()})` : ''}, so jobs don't
+          have the latest changes. Stop it (Ctrl+C) and run <code className="num">npm start</code>. Turtles reconnect by themselves; running jobs pause and need Resume.
+        </>
+      ) : (
+        <>
+          <b>Rebuild the dashboard:</b> the backend runs newer code than this page was built from. Run <code className="num">npm run build</code>, then reload.
+        </>
+      )}
+    </div>
+  );
 }

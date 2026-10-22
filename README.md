@@ -177,6 +177,12 @@ That's CC: Tweaked's HTTP rules. Add the allow rule from [Connect your turtles](
 </details>
 
 <details>
+<summary><b>I updated, but a new feature doesn't work.</b></summary>
+
+The backend only picks up new code when it restarts. After `git pull` (and `npm install` if dependencies changed), run `npm run build`, then stop the backend and run `npm start` again. The dashboard shows a **Restart the backend** banner when it's running older code. Turtles get agent updates when you run `install` on them.
+</details>
+
+<details>
 <summary><b>A move fails with "Movement failed".</b></summary>
 
 Almost always a claimed chunk: claim mods like FTB Chunks keep turtles (fake players) out. Allow fake players in your team's FTB Chunks settings, or unclaim the chunks your turtles work in. The dashboard shows this hint next to the error.

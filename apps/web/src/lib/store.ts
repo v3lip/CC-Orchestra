@@ -24,6 +24,8 @@ export interface Toast {
 
 interface FleetState {
   live: 'connecting' | 'live' | 'down';
+  /** The backend's code as it reported it; null = it didn't (it predates the check). */
+  server?: { fingerprint: string; startedAt: number } | null;
   /** Turtles, jobs and depots of the instance shown (`world`); the all* maps hold every instance. */
   turtles: Record<string, TurtleView>;
   allTurtles: Record<string, TurtleView>;
@@ -235,6 +237,7 @@ export function apply(m: UiServerMsg) {
         allJobs: Object.fromEntries((m.jobs ?? []).map((j) => [j.id, j])),
         allDepots: Object.fromEntries((m.depots ?? []).map((d) => [d.id, d])),
         forcedChunks: m.forcedChunks ?? [],
+        server: m.server ?? null,
       });
       // Default the map to where the turtles are (in the chosen instance, if one was chosen).
       rescope();

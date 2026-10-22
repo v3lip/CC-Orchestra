@@ -1,5 +1,12 @@
 # Progress notes
 
+## Warning when the backend wasn't restarted after an update (2026-10-22)
+
+- In-game, a torch job stopped with the old "not fuel" error: the backend had been running since the day before, so it was still the pre-torch code (while the rebuilt dashboard already offered the option, which the old backend silently dropped). The backend runs from source and only picks up changes when restarted.
+- The backend now fingerprints its code (server + protocol sources, line endings ignored) when it starts and sends it to the dashboard; the dashboard build bakes in the fingerprint it was built against. If they differ, a banner says **Restart the backend** (backend started before the build, or too old to report) or **Rebuild the dashboard** (the other way round). Off in `npm run dev`, where the server restarts on every edit.
+- Tests: fingerprint ignores line endings and follows code changes; the init message carries it; the mismatch rules. Browser check: no banner with matching code; after changing a server file and rebuilding only the dashboard, the restart banner with the backend's start time.
+
+
 ## Torches in jobs (2026-10-22)
 
 - New job option **Place torches** (every N blocks, default 10). The turtle puts a torch on the floor cell under the row it walks in, which it digs from above anyway, so torches never block its way; they're excluded from the work area so it never digs them on the way back. In a quarry only the bottom floor gets torches (the floors above are dug away). Tunnels must be at least 2 high; the form says so.

@@ -496,7 +496,18 @@ export interface Targets {
 }
 
 export type UiServerMsg =
-  | { type: 'init'; turtles: TurtleView[]; groups: GroupView[]; batches: BatchView[]; events: EventView[]; jobs: JobView[]; depots: DepotView[]; forcedChunks: ForcedChunk[] }
+  | {
+      type: 'init';
+      turtles: TurtleView[];
+      groups: GroupView[];
+      batches: BatchView[];
+      events: EventView[];
+      jobs: JobView[];
+      depots: DepotView[];
+      forcedChunks: ForcedChunk[];
+      /** The backend's code (see apps/server/src/codeVersion.ts), so the dashboard can tell a stale backend. */
+      server?: { fingerprint: string; startedAt: number };
+    }
   | { type: 'turtle'; turtle: TurtleView }
   | { type: 'turtle_removed'; id: string }
   | { type: 'groups'; groups: GroupView[] }

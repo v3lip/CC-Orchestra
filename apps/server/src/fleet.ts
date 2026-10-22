@@ -46,6 +46,7 @@ import {
 } from '@ccfleet/protocol';
 import type { Db } from './db';
 import { tx } from './db';
+import { runningCode } from './codeVersion';
 import { digestEquals, newId, normalizeCode, now, pairingCode, randomToken, sha256 } from './util';
 
 /** Commands and batches older than this are deleted (hourly). */
@@ -255,6 +256,7 @@ export class Fleet {
       batches: [...this.batches.values()].sort((a, b) => b.createdAt - a.createdAt),
       events: this.recentEvents(200),
       ...(this.hooks.extraInit?.() ?? { jobs: [], depots: [], forcedChunks: [] }),
+      server: runningCode(),
     };
   }
 
