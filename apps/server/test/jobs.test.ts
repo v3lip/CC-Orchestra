@@ -745,6 +745,85 @@ describe('torches', () => {
     expect(done.progress.torchesPlaced).toBe(torches.length);
   });
 
+  it('over a cave it waits for floor again, instead of hanging a torch on a block it digs next', async () => {
+    const { server, world, depot } = await setup();
+    // Air under the first two floor cells: the turtle sees it while scanning the walls.
+    world.set(2, 99, 0, null);
+    world.set(3, 99, 0, null);
+    const t = await sim(server, world, { fuel: 2000, slots: slots({ 2: { name: 'minecraft:torch', count: 16 } }) });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 16 }, { scanWalls: true, torches: { enabled: true, spacing: 8 } }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    expect(world.droppedTorches).toBe(0);
+    const placed = Array.from({ length: 16 }, (_, d) => 2 + d).filter((x) => world.get(x, 100, 0)?.name.endsWith('torch'));
+    expect(placed).toEqual([4, 12]);
+    expect(placed.every((x) => world.get(x, 100, 0)?.name === 'minecraft:torch')).toBe(true);
+    expect(server.fleet.recentEvents(500).filter((e) => e.message.includes("couldn't place"))).toEqual([]);
+  });
+
+  it('with no floor and no lasting wall, a hung torch is taken back and it tries a few blocks on', async () => {
+    const { server, world, depot } = await setup();
+    // A 3-wide tunnel over a cave: the middle column has no wall but the next slice.
+    for (let x = 2; x < 18; x++) for (let z = 0; z < 3; z++) world.set(x, 99, z, null);
+    const t = await sim(server, world, { fuel: 3000, slots: slots({ 2: { name: 'minecraft:torch', count: 32 } }) });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { width: 3, length: 16 }, { torches: { enabled: true, spacing: 6 } }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 90000);
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    expect(world.droppedTorches).toBe(0);
+    // Whatever is left hangs on something outside the tunnel.
+    for (let x = 2; x < 18; x++) for (let z = 0; z < 3; z++) {
+      const b = world.get(x, 100, z);
+      if (!b) continue;
+      expect(b.name).toBe('minecraft:wall_torch');
+      expect(z === 0 || z === 2).toBe(true);
+    }
+    // Retries are spread out, not one per block (48 floor cells).
+    const failures = server.fleet.recentEvents(1000).filter((e) => e.message.includes('trying again a few blocks on')).length;
+    expect(failures).toBeLessThanOrEqual(16);
+  });
+
+  it('out of torches, a dark spot counts once per spacing, not once per block', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world, { fuel: 2000 });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 24 }, { torches: { enabled: true, spacing: 8 } }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id, 60000);
+    expect(done.status).toBe('completed');
+    expect(done.progress.torchesPlaced ?? 0).toBe(0);
+    expect(done.progress.torchesMissed).toBe(3);
+  });
+
+  it('tops up the torch stack it carries instead of starting a new slot', async () => {
+    const { server, world, depot } = await setup({ fuelChest: true });
+    const fuelChest = world.inventories.get('0,99,0')!;
+    // Two small stacks: it can only take the first one at a time.
+    fuelChest[0] = { name: 'minecraft:torch', count: 5 };
+    fuelChest[1] = { name: 'minecraft:torch', count: 40 };
+    const t = await sim(server, world, { fuel: 3000 });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 200 }, { refuelTarget: 100, torches: { enabled: true, spacing: 8 } }));
+    server.jobs.start(job.id);
+    await waitFor(() => (server.jobs.getJob(job.id)?.progress.trips ?? 0) >= 1, 30000, 'the torch trip');
+    server.jobs.pause(job.id);
+    await waitFor(() => server.jobs.getJob(job.id)?.status === 'paused', 30000, 'pause');
+    const torchSlots = t.body.slots.filter((s) => s?.name === 'minecraft:torch');
+    expect(torchSlots).toHaveLength(1);
+    expect(torchSlots[0]!.count).toBe(25);
+  });
+
+  it('knows which block a torch hangs on', async () => {
+    const { torchSupport } = await import('../src/jobs/runner');
+    const c = { x: 5, y: 10, z: 5 };
+    expect(torchSupport(c, { name: 'minecraft:torch' })).toEqual({ x: 5, y: 9, z: 5 });
+    expect(torchSupport(c, { name: 'minecraft:wall_torch', state: { facing: 'north' } })).toEqual({ x: 5, y: 10, z: 6 });
+    expect(torchSupport(c, { name: 'minecraft:wall_torch', state: { facing: 'east' } })).toEqual({ x: 4, y: 10, z: 5 });
+    expect(torchSupport(c, { name: 'minecraft:wall_torch' })).toBeUndefined();
+    expect(torchSupport(c, { name: 'minecraft:stone' })).toBeUndefined();
+  });
+
   it('needs agent 0.3.2 to place torches', async () => {
     const { agentSupportsTorches } = await import('../src/jobs/runner');
     expect(agentSupportsTorches('lua-0.3.1')).toBe(false);

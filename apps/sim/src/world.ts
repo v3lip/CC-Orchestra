@@ -98,6 +98,8 @@ export class SimWorld {
   inventories = new Map<string, (SimItem | null)[]>();
   /** Items lost because a turtle had no free slot. */
   spilled = 0;
+  /** Torches that fell off because their block was dug. */
+  droppedTorches = 0;
   /** Chunks ("cx,cz") a claim mod protects: turtles can't move into them (CC says "Movement failed"). */
   claimedChunks = new Set<string>();
 
@@ -166,8 +168,22 @@ export class SimWorld {
       this.spilled += inv.reduce((n, s) => n + (s?.count ?? 0), 0);
     }
     this.settle(p.x, p.y, p.z);
+    this.dropUnsupportedTorches(p);
     const d = DROPS[b.name];
     return d ? { ...d } : { name: b.name, count: 1 };
+  }
+
+  /** Torches standing on, or hanging from, a block that is gone fall off (items lost in the world). */
+  dropUnsupportedTorches(p: Vec3): void {
+    const fall = (c: Vec3) => {
+      this.set(c.x, c.y, c.z, null);
+      this.droppedTorches++;
+    };
+    if (this.get(p.x, p.y + 1, p.z)?.name === 'minecraft:torch') fall({ ...p, y: p.y + 1 });
+    for (const [dx, dz, facing] of [[0, -1, 'north'], [0, 1, 'south'], [-1, 0, 'west'], [1, 0, 'east']] as const) {
+      const b = this.get(p.x + dx, p.y, p.z + dz);
+      if (b?.name === 'minecraft:wall_torch' && b.state?.facing === facing) fall({ x: p.x + dx, y: p.y, z: p.z + dz });
+    }
   }
 
   /** Let gravel/sand above (x,y,z) fall into empty space. */

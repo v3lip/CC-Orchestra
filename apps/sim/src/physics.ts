@@ -67,21 +67,28 @@ export function place(world: SimWorld, body: TurtleBody, dir: Dir): { ok: true; 
     return !!b && !world.isFluid(b) && !b.name.endsWith('torch') && !world.occupants.has(`${c.x},${c.y},${c.z}`);
   };
   const below = { ...p, y: p.y - 1 };
-  let block: string | undefined;
+  let block: Block | undefined;
   if (isTorchItem(slot.name)) {
-    const sides = [0, 1, 2, 3].map((i) => ((body.heading + i) % 4) as Heading).map((h) => addVec(p, { ...HEADING_VECTORS[h], y: 0 }));
-    if (dir === 'down') block = solid(below) ? 'minecraft:torch' : undefined;
-    else if (dir === 'front') block = solid(addVec(p, stepFor('forward', body.heading)!)) ? 'minecraft:wall_torch' : solid(below) ? 'minecraft:torch' : undefined;
-    else block = sides.some(solid) ? 'minecraft:wall_torch' : undefined;
+    // Side blocks, the way the turtle faces first; a wall torch faces away from its block.
+    const sides = [0, 1, 2, 3].map((i) => ((body.heading + i) % 4) as Heading);
+    const wall = sides.find((h) => solid(addVec(p, { ...HEADING_VECTORS[h], y: 0 })));
+    const wallTorch = wall === undefined ? undefined : { name: 'minecraft:wall_torch', state: { facing: FACINGS[(wall + 2) % 4] } };
+    if (dir === 'down') block = solid(below) ? { name: 'minecraft:torch' } : wallTorch;
+    else if (dir === 'front') {
+      const h = body.heading as Heading;
+      block = solid(addVec(p, stepFor('forward', h)!)) ? { name: 'minecraft:wall_torch', state: { facing: FACINGS[(h + 2) % 4] } } : solid(below) ? { name: 'minecraft:torch' } : undefined;
+    } else block = wallTorch;
   } else {
-    block = slot.name;
+    block = { name: slot.name };
   }
   if (!block) return { ok: false, reason: 'Cannot place block here' };
-  world.set(p.x, p.y, p.z, { name: block });
+  world.set(p.x, p.y, p.z, block);
   slot.count -= 1;
   if (slot.count === 0) body.slots[body.selected - 1] = null;
-  return { ok: true, block };
+  return { ok: true, block: block.name };
 }
+
+const FACINGS = ['north', 'east', 'south', 'west'] as const;
 
 /** Put an item in the inventory like a turtle does: selected slot first, then wrap around. */
 export function addItem(world: SimWorld, body: TurtleBody, item: SimItem): void {

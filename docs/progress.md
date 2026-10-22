@@ -1,5 +1,13 @@
 # Progress notes
 
+## Torches: steadier in-game (2026-10-22)
+
+- First in-game run (three branch mines plus a 3-wide tunnel, FTB Evolution): 33 torches placed, but 50 attempts failed with "Cannot place block here", one torch fell off later, eMiner1 carried its torches in six slots, and "missed" read 32.
+- Causes, from the job log and the map: every failed spot had air under the floor (a cave, or ore veins the turtles dug out below the tunnel), and the runner then retried at every following block. A torch placed first and then undermined by vein following dropped. Each depot visit put the top-up in a new slot. Out of torches, every block counted as a miss.
+- Fixes: skip spots whose floor is known to be air; after a failure, wait 3 blocks; inspect what was placed, and if CC hung it on a side block that the job digs later, take it back; vein following never digs a block a torch hangs on; top-ups go into the carried stack; a dark spot counts once per spacing. No agent update needed (uses inspect).
+- The simulator now hangs torches on a side block when there's no floor (with facing) and drops torches whose block is dug, like the game. Tests reproduce each case and fail on the previous runner: a cave under the floor, a 3-wide tunnel over a cave, misses counted once, top-ups merged.
+
+
 ## Warning when the backend wasn't restarted after an update (2026-10-22)
 
 - In-game, a torch job stopped with the old "not fuel" error: the backend had been running since the day before, so it was still the pre-torch code (while the rebuilt dashboard already offered the option, which the old backend silently dropped). The backend runs from source and only picks up changes when restarted.

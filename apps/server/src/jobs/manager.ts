@@ -46,6 +46,8 @@ export interface JobRec {
     counted?: string[];
     /** Torches this job placed: never dug, never walked through. */
     torches?: string[];
+    /** The blocks those torches hang on: vein following leaves them alone. */
+    torchSupports?: string[];
   };
 }
 

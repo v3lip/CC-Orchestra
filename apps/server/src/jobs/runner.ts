@@ -40,6 +40,11 @@ export class JobRunner {
   private visitedDock = false;
   /** Cells holding a torch this job placed (persisted). */
   private torches: Set<string>;
+  /** Blocks those torches hang on: never dug, or the torch drops (persisted). */
+  private torchSupports: Set<string>;
+  /** Spots left dark (no torch with us) and spots where placing failed, for spacing. */
+  private darkSpots: Vec3[] = [];
+  private failedSpots: Vec3[] = [];
   /** Said once per stretch without torches, so the log isn't flooded. */
   private warnedNoTorches = false;
   private m: Mover;
@@ -54,6 +59,7 @@ export class JobRunner {
     this.executor = `job:${job.view.id}`;
     this.counted = new Set(job.checkpoint.counted ?? []);
     this.torches = new Set(job.checkpoint.torches ?? []);
+    this.torchSupports = new Set(job.checkpoint.torchSupports ?? []);
     const v = job.view;
     this.m = new Mover({
       fleet,
@@ -175,6 +181,7 @@ export class JobRunner {
   private veinOre(p: Vec3, block: string | null): boolean {
     const v = this.v.policy.veins;
     if (!block || !v?.ores.length || !v.ores.some((o) => oreMatches(o, block))) return false;
+    if (this.torchSupports.has(key(p))) return false;
     if (this.v.exclusions.some((b) => inBox(b, p))) return false;
     return this.v.segments.some((s) => {
       const b = sectionBox(s);
@@ -301,14 +308,20 @@ export class JobRunner {
     const t = this.v.policy.torches;
     if (!t?.enabled) return;
     const cell = { ...st.pos, y: st.pos.y - 1 };
-    if (!st.extra.some((c) => eq(c, cell)) || !this.inWork(cell) || this.inWork({ ...cell, y: cell.y - 1 })) return;
+    const below = { ...cell, y: cell.y - 1 };
+    if (!st.extra.some((c) => eq(c, cell)) || !this.inWork(cell) || this.inWork(below)) return;
     if (this.m.known(cell)?.cell === 'solid') return;
-    for (const k of this.torches) {
-      const [x, y, z] = k.split(',').map(Number);
-      if (Math.abs(x - cell.x) < t.spacing && Math.abs(z - cell.z) < t.spacing && Math.abs(y - cell.y) <= 3) return;
-    }
+    // A torch stands on the floor: over a cave or a vein dug out below, wait for floor again.
+    const floor = this.m.known(below);
+    if (floor && floor.cell !== 'solid') return;
+    const near = (p: Vec3, r: number) => Math.abs(p.x - cell.x) < r && Math.abs(p.z - cell.z) < r && Math.abs(p.y - cell.y) <= 3;
+    if ([...this.torches].some((k) => near(parseKey(k), t.spacing)) || this.darkSpots.some((p) => near(p, t.spacing))) return;
+    // It just failed close by (no floor, it turned out): give it a few blocks.
+    if (this.failedSpots.some((p) => near(p, FAILED_TORCH_GAP))) return;
     const item = this.m.turtle().inventory.find((i) => isTorchItem(i.name));
     if (!item) {
+      // Counted once per spot that should have had one, not once per block.
+      this.darkSpots.push(cell);
       this.v.progress.torchesMissed = (this.v.progress.torchesMissed ?? 0) + 1;
       if (!this.warnedNoTorches) {
         this.warnedNoTorches = true;
@@ -321,11 +334,24 @@ export class JobRunner {
     const r = await this.m.step('place', { dir: 'down', slot: item.slot });
     await this.m.step('select', { slot: 1 });
     if (r.status !== 'succeeded') {
-      this.mgr.log('info', `${this.v.name}: couldn't place a torch at ${fmt(cell)} (${r.reason}); trying the next spot`, this.v.turtleId);
+      this.failedSpots.push(cell);
+      this.mgr.log('info', `${this.v.name}: couldn't place a torch at ${fmt(cell)} (${r.reason}); trying again a few blocks on`, this.v.turtleId);
+      return;
+    }
+    // With no floor after all, CC hangs it on a side block instead. Keep it only if that
+    // block stays; otherwise it would drop when the job digs there: take it back.
+    const look = await this.m.step('inspectDown');
+    const support = torchSupport(cell, look.data as { name?: string; state?: Record<string, unknown> } | undefined);
+    if (!support || this.inWork(support)) {
+      await this.m.step('digDown');
+      this.failedSpots.push(cell);
+      this.mgr.log('info', `${this.v.name}: no floor for a torch at ${fmt(cell)}, and its wall gets dug; trying again a few blocks on`, this.v.turtleId);
       return;
     }
     this.torches.add(key(cell));
+    this.torchSupports.add(key(support));
     this.cp.torches = [...this.torches];
+    this.cp.torchSupports = [...this.torchSupports];
     this.v.progress.torchesPlaced = (this.v.progress.torchesPlaced ?? 0) + 1;
     this.mgr.save(this.job);
     this.mgr.broadcast(this.job);
@@ -693,7 +719,8 @@ export class JobRunner {
       const fuelShort = typeof st.fuel === 'number' && st.fuel < fuelTarget;
       const torchesShort = kept() < torchesWanted;
       if (!fuelShort && !torchesShort) break;
-      const slot = this.emptySlot();
+      // Topping up torches: into the stack we already carry, so they don't take a new slot each trip.
+      const slot = (!fuelShort && this.torchSlotWithRoom()) || this.emptySlot();
       if (!slot) break;
       const count = fuelShort ? Math.min(64, Math.max(1, Math.ceil((fuelTarget - (st.fuel as number)) / 80))) : Math.min(64, torchesWanted - kept());
       const r = await this.m.step('suck', { dir, slot, count });
@@ -732,6 +759,11 @@ export class JobRunner {
 
   private itemIn(slot: number): string | undefined {
     return this.m.turtle().inventory.find((i) => i.slot === slot)?.name;
+  }
+
+  private torchSlotWithRoom(): number | undefined {
+    const reserved = new Set([this.v.policy.fuelSlot, ...this.v.policy.keepSlots].filter((s) => s > 0));
+    return this.m.turtle().inventory.find((i) => isTorchItem(i.name) && i.count < 64 && !reserved.has(i.slot))?.slot;
   }
 
   /** First empty slot that isn't reserved for fuel or kept items. */
@@ -790,6 +822,28 @@ export class JobRunner {
       throw new JobError('insufficient_fuel', `Fuel ${st.fuel} is below the estimated ${need} needed to continue. Put fuel in ${where}${depot.fuelDir ? ' or the fuel chest' : ''}, then resume.`);
     }
   }
+}
+
+/** After a failed torch, no new attempt within this many blocks of it. */
+const FAILED_TORCH_GAP = 3;
+
+const FACING: Record<string, Vec3> = { north: { x: 0, y: 0, z: -1 }, south: { x: 0, y: 0, z: 1 }, west: { x: -1, y: 0, z: 0 }, east: { x: 1, y: 0, z: 0 } };
+
+/**
+ * The block a placed torch hangs on: the floor for a standing torch, the block behind a
+ * wall torch (it faces away from it). Undefined if it isn't a torch at all.
+ */
+export function torchSupport(cell: Vec3, block: { name?: string; state?: Record<string, unknown> } | undefined): Vec3 | undefined {
+  const name = block?.name ?? '';
+  if (!name.endsWith('torch')) return undefined;
+  if (!name.endsWith('wall_torch')) return { ...cell, y: cell.y - 1 };
+  const f = FACING[String(block?.state?.facing ?? '')];
+  return f ? { x: cell.x - f.x, y: cell.y, z: cell.z - f.z } : undefined;
+}
+
+function parseKey(k: string): Vec3 {
+  const [x, y, z] = k.split(',').map(Number);
+  return { x, y, z };
 }
 
 /** Quarter turns needed to face `to` from `from`. */
