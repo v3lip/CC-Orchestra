@@ -1,5 +1,11 @@
 # Progress notes
 
+## Faster ore search for big maps (2026-10-23)
+
+- With Geo scanning the map grows by up to ~36 000 cells per scan. The Ores tab's search read every cell of the world (no index can serve `block LIKE '%ore%'`): ~200 ms per 2 million cells, during which the server (SQLite is synchronous) answers nobody.
+- Migration 5 adds a partial index holding only possible ore rows; the search uses it (`INDEXED BY`, same condition text from one constant). 2 million cells: ~200 ms → ~17 ms; inserts barely affected. On a copy of the real database (115 000 cells): migration 21 ms, same results, ~7 ms → under 0.5 ms.
+
+
 ## Milestone 6, part A — Geo Scanner mapping (2026-10-23)
 
 - A turtle with an Advanced Peripherals Geo Scanner maps every block within 8 blocks (up to 16, which costs a little fuel) in one scan, and the air between them. AP's scan walks the full cube, leaves out air and reports positions relative to the scanner (read from AP 0.7.7.1r's code, so the in-game probe wasn't needed to start; the agent also copes with absolute positions).

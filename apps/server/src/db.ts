@@ -7,6 +7,12 @@ export type Db = DatabaseSync;
 /**
  * Forward-only migrations. Never edit a migration that has shipped; append a new one.
  */
+/**
+ * Map rows that may be ores (narrowed further by isOreBlock). The map_ores index is
+ * partial on exactly this condition; queries must use the same text to use it.
+ */
+export const ORE_ROWS = `cell='solid' AND (block LIKE '%ore%' OR block LIKE '%ancient_debris%')`;
+
 const MIGRATIONS: string[] = [
   // 1: core schema
   `
@@ -144,6 +150,11 @@ const MIGRATIONS: string[] = [
     name TEXT PRIMARY KEY,
     created_at INTEGER NOT NULL
   ) WITHOUT ROWID;
+  `,
+  // 5: ore blocks only, for the Ores tab: with Geo scanning the map grows by tens of thousands
+  // of cells per scan, and finding ores by scanning every cell got slow (~200 ms per 2 M cells)
+  `
+  CREATE INDEX map_ores ON map_blocks(world, dimension) WHERE ${ORE_ROWS};
   `,
 ];
 

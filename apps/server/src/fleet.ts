@@ -46,7 +46,7 @@ import {
   parseOpArgs,
 } from '@ccfleet/protocol';
 import type { Db } from './db';
-import { tx } from './db';
+import { ORE_ROWS, tx } from './db';
 import { runningCode } from './codeVersion';
 import { digestEquals, newId, normalizeCode, now, pairingCode, randomToken, sha256 } from './util';
 
@@ -1220,8 +1220,8 @@ export class Fleet {
     if (this.closed) return [];
     const rows = this.db
       .prepare(
-        `SELECT x, y, z, block, cell, observed_at, source FROM map_blocks
-         WHERE world=? AND dimension=? AND cell='solid' AND (block LIKE '%ore%' OR block LIKE '%ancient_debris%') LIMIT ?`,
+        `SELECT x, y, z, block, cell, observed_at, source FROM map_blocks INDEXED BY map_ores
+         WHERE world=? AND dimension=? AND ${ORE_ROWS} LIMIT ?`,
       )
       .all(world, dimension, limit * 4) as Record<string, unknown>[];
     return rows
