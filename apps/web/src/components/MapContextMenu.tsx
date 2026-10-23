@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Heading, MapBlock, Vec3 } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { mapCache, runBatch, useFleet } from '../lib/store';
-import { shortItem, statusOf } from '../lib/status';
+import { hasScanner, shortItem, statusOf } from '../lib/status';
 
 type Item = { label: string; hint?: string; danger?: boolean; disabled?: boolean; run?: () => void } | 'sep' | { title: string };
 
@@ -60,6 +60,11 @@ export function MapContextMenu() {
     items.push(selected ? { label: 'Remove from selection', run: () => st.select([t.id], 'toggle') } : { label: 'Add to selection', run: () => st.select([t.id], 'add') });
     items.push({ label: 'Details', run: () => (st.select([t.id], 'replace'), st.focus(t.id), st.setRightTab('turtle')) });
     items.push({ label: 'Jobs', run: () => (st.select([t.id], 'replace'), st.focus(t.id), st.setRightTab('jobs')) });
+    if (hasScanner(t)) {
+      items.push('sep');
+      items.push({ label: 'Geo scan around it', hint: 'radius 8, free', run: () => runBatch(api.command({ turtleIds: [t.id] }, 'geoScan', { radius: 8 })) });
+      items.push({ label: 'Geo scan, radius 16', hint: 'costs fuel', run: () => runBatch(api.command({ turtleIds: [t.id] }, 'geoScan', { radius: 16 })) });
+    }
     items.push('sep');
     items.push({ label: 'Pause', hint: 'after the current action', run: () => runBatch(api.stop({ turtleIds: [t.id] }, 'pause')) });
     items.push({ label: 'Resume', run: () => runBatch(api.resume({ turtleIds: [t.id] })) });

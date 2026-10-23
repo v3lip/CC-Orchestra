@@ -25,7 +25,9 @@ Moved to a later milestone: formations (splitting branch/grid/quarry jobs betwee
 | Max radius | 16 blocks (`scanBlocksMaxCostRadius`); beyond 8 costs 0.17 per extra block, paid from the turtle's fuel (`attachFuel`) |
 | Cooldown | 2 s between scans (`scanBlocksCooldown`) |
 
-**Verify in-game before building on them** (step A0):
+**Checked in AP 0.7.7.1r's code (2026-10-23)**, so A0 isn't blocking: `ScanUtils.traverseBlocks` walks the full **cube** from −radius to +radius, skips blocks whose state `isAir`, and the scan reports positions **relative** to the scanner (`relativeTraverseBlocks`), each with `name`, `tags`, `x`, `y`, `z`. Still to confirm in-game for AP 0.8.1 (1.21); the agent also copes with absolute positions, should a version report those.
+
+**Originally to verify in-game** (step A0):
 
 - Are result positions relative to the scanner? (Expected: yes.)
 - Is the scanned volume a cube or a sphere of the radius, and is air left out? This decides which cells can be marked "known empty".
@@ -50,13 +52,13 @@ Moved to a later milestone: formations (splitting branch/grid/quarry jobs betwee
 
 | | Step | Done when |
 |---|---|---|
-| A0 | In-game probe: run `scan(8)` once from the Lua prompt on a turtle with a scanner; note result shape, coordinates, air, cost | facts above confirmed or corrected in this doc |
-| A1 | Protocol + server: scan observations, wider acceptance radius, transaction insert, `forge:ores` tag | unit tests: a scan is stored, far observations still rejected, tag-only ore detected |
-| A2 | Simulator geo scanner upgrade | sim test: scanning reports the right blocks, cooldown enforced |
-| A3 | Agent op `geoScan` (Lua) + upgrade detection | Lua agent test in the CC test host |
-| A4 | Job policy "Geo scan every N blocks"; estimate includes cost | job test: ores beside the route are found and followed without wall scanning |
-| A5 | Dashboard: right-click "Geo scan here", details panel, legend | browser check on a sim instance |
-| A6 | In-game checklist steps; docs | user confirms in-game |
+| A0 ✅ | In-game probe: run `scan(8)` once from the Lua prompt on a turtle with a scanner; note result shape, coordinates, air, cost | facts above confirmed or corrected in this doc. **Done 2026-10-23 from AP's code instead** (relative, cube, no air); the in-game check is checklist step 37 |
+| A1 ✅ | Protocol + server: scan observations, wider acceptance radius, transaction insert, `forge:ores` tag | unit tests: a scan is stored, far observations still rejected, tag-only ore detected. **Done:** `geoScan` op, `observe.scan`, air marked after a complete scan (not after one that lost blocks). Tags not used yet |
+| A2 ✅ | Simulator geo scanner upgrade | sim test: scanning reports the right blocks, cooldown enforced. **Done:** `--geo`, both agents |
+| A3 ✅ | Agent op `geoScan` (Lua) + upgrade detection | Lua agent test in the CC test host. **Done:** agent 0.3.3 |
+| A4 ✅ | Job policy "Geo scan every N blocks"; estimate includes cost | job test: ores beside the route are found and followed without wall scanning. **Done** (the estimate is unchanged: radius 8 is free) |
+| A5 ✅ | Dashboard: right-click "Geo scan here", details panel, legend | browser check on a sim instance. **Done:** command bar **Geo scan**, right-click radius 8/16, details show "Geo Scanner", job form option, scans on the job card |
+| A6 | In-game checklist steps; docs | user confirms in-game. Docs and checklist steps 37/37b written; **waiting for the user** |
 
 ---
 

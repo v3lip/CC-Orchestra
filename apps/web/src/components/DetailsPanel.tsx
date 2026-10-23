@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { type TurtleView, reasonHint } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { runBatch, useFleet } from '../lib/store';
-import { HEADING_SHORT, STATUS_COLOR, STATUS_LABEL, ago, chunkOf, fuelFraction, isChunky, shortItem, statusOf } from '../lib/status';
+import { HEADING_SHORT, STATUS_COLOR, STATUS_LABEL, ago, chunkOf, fuelFraction, isChunky, shortItem, statusOf, upgradeLabel } from '../lib/status';
 
 export function DetailsPanel() {
   const focusId = useFleet((s) => s.focusId);
@@ -68,8 +68,8 @@ export function DetailsPanel() {
       </Section>
 
       <Section title="Upgrades & chunk loading">
-        <Row k="Left" v={st?.upgrades?.left ?? 'tool / none'} />
-        <Row k="Right" v={st?.upgrades?.right ?? 'tool / none'} />
+        <Row k="Left" v={upgradeLabel(st?.upgrades?.left)} />
+        <Row k="Right" v={upgradeLabel(st?.upgrades?.right)} />
         {pose?.pos && <Row k="Chunk" v={<span className="num">{`${chunkOf(pose.pos.x, pose.pos.z).cx}, ${chunkOf(pose.pos.x, pose.pos.z).cz}`}</span>} />}
         {isChunky(t) ? (
           <p className="mt-1 text-[11px] text-emerald-300">

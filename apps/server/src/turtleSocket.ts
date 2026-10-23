@@ -105,8 +105,8 @@ export function handleTurtleSocket(ws: WebSocket, fleet: Fleet, remote: string, 
         fleet.released(turtleId, msg.stopId);
         break;
       case 'observe': {
-        const r = fleet.observe(turtleId, msg.blocks);
-        if (r.rejected) fleet.log('warn', `Ignored ${r.rejected} observation(s) not adjacent to the turtle's known position`, turtleId);
+        const r = fleet.observe(turtleId, msg.blocks, msg.scan?.radius);
+        if (r.rejected) fleet.log('warn', `Ignored ${r.rejected} observation(s) ${msg.scan ? 'outside the scan radius of' : 'not adjacent to'} the turtle's known position`, turtleId);
         break;
       }
       case 'log':

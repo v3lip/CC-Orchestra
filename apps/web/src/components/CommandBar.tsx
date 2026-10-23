@@ -3,7 +3,7 @@ import type { Op } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { runBatch, useFleet } from '../lib/store';
 import { DRIVE_KEYS, isTyping } from '../lib/keys';
-import { STATUS_COLOR, statusOf } from '../lib/status';
+import { STATUS_COLOR, hasScanner, statusOf } from '../lib/status';
 
 /**
  * Contextual command toolbar. The target strip always shows exactly which turtles a
@@ -88,6 +88,13 @@ export function CommandBar() {
             Slot…
           </Btn>
           <Btn disabled={none} onClick={() => send('refuel')} title="Refuel from the selected slot">Refuel</Btn>
+          <Btn
+            disabled={!targets.some(hasScanner)}
+            onClick={() => runBatch(api.command({ turtleIds: targets.filter(hasScanner).map((t) => t.id) }, 'geoScan', { radius: 8 }))}
+            title="Geo Scanner (Advanced Peripherals): map every block within 8 blocks, free. Right-click a turtle for radius 16 (costs fuel)."
+          >
+            Geo scan
+          </Btn>
         </Group>
         <Group title="Control">
           <Btn disabled={none} onClick={() => runBatch(api.stop({ turtleIds: ids }, 'pause'))} title="Pause after the current atomic action">Pause</Btn>

@@ -272,3 +272,37 @@ describe('restarts and connection loss', () => {
     }
   });
 });
+
+describe('Geo Scanner scans', () => {
+  it('accept blocks within the scan radius only, and mark air only from complete scans', async () => {
+    server = await startServer();
+    const world = openWorld();
+    for (let x = -4; x <= 4; x++) for (let y = 96; y <= 104; y++) for (let z = -4; z <= 4; z++) world.set(x, y, z, { name: 'minecraft:stone' });
+    world.set(0, 100, 0, null);
+    world.set(2, 100, 0, null);
+    const t = await spawn(server, world, { x: 0, y: 100, z: 0, heading: 0 }, { opMs: 5, upgrades: { right: 'geoScanner' } });
+    const id = t.turtleId!;
+    expect(server.fleet.observe(id, [{ x: 3, y: 100, z: 0, name: 'minecraft:stone' }])).toEqual({ accepted: 0, rejected: 1 });
+    expect(server.fleet.observe(id, [{ x: 3, y: 100, z: 0, name: 'minecraft:stone' }, { x: 9, y: 100, z: 0, name: 'minecraft:stone' }], 4)).toEqual({ accepted: 1, rejected: 1 });
+    // The map wrongly thinks (2 100 0) is stone; a scan that loses a batch must not "fix" anything.
+    server.fleet.importObservations('sim', 'minecraft:overworld', [{ x: 2, y: 100, z: 0, name: 'minecraft:stone' }], 'test');
+    const sim = t as unknown as { send: (m: { type: string; scan?: unknown }) => void };
+    const send = sim.send.bind(t);
+    let dropped = false;
+    sim.send = (m) => {
+      if (m.type === 'observe' && m.scan && !dropped) {
+        dropped = true;
+        return;
+      }
+      send(m);
+    };
+    expect((await settle(server, server.fleet.issueCommand({ turtleIds: [id] }, 'geoScan', { radius: 4 }).id)).items[0].status).toBe('succeeded');
+    expect(server.fleet.mapCell('sim', 'minecraft:overworld', { x: 2, y: 100, z: 0 })?.cell).toBe('solid');
+    expect(server.fleet.recentEvents(50).some((e) => e.message.includes('not marking air'))).toBe(true);
+    // A complete scan does.
+    sim.send = send;
+    await new Promise((r) => setTimeout(r, 60));
+    expect((await settle(server, server.fleet.issueCommand({ turtleIds: [id] }, 'geoScan', { radius: 4 }).id)).items[0].status).toBe('succeeded');
+    await waitFor(() => server!.fleet.mapCell('sim', 'minecraft:overworld', { x: 2, y: 100, z: 0 })?.cell === 'empty', 3000, 'air marked');
+  });
+});

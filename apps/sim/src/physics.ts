@@ -90,6 +90,30 @@ export function place(world: SimWorld, body: TurtleBody, dir: Dir): { ok: true; 
 
 const FACINGS = ['north', 'east', 'south', 'west'] as const;
 
+/** Geo Scanner: free up to this radius, then fuel per extra block of radius (sim's own rule). */
+export const GEO_FREE_RADIUS = 8;
+export const geoScanCost = (radius: number) => Math.max(0, radius - GEO_FREE_RADIUS) * 2;
+
+/**
+ * Advanced Peripherals Geo Scanner scan: every block in the cube of `radius` around the
+ * turtle except air, with positions relative to it. Other turtles are blocks too (as in
+ * the game); fluids are reported.
+ */
+export function geoScan(world: SimWorld, body: TurtleBody, radius: number): { name: string; x: number; y: number; z: number; tags: string[] }[] {
+  const out: { name: string; x: number; y: number; z: number; tags: string[] }[] = [];
+  const p = body.pos;
+  for (let dx = -radius; dx <= radius; dx++)
+    for (let dy = -radius; dy <= radius; dy++)
+      for (let dz = -radius; dz <= radius; dz++) {
+        const x = p.x + dx;
+        const y = p.y + dy;
+        const z = p.z + dz;
+        const name = world.occupants.has(`${x},${y},${z}`) ? 'computercraft:turtle_normal' : world.get(x, y, z)?.name;
+        if (name) out.push({ name, x: dx, y: dy, z: dz, tags: name.endsWith('_ore') ? ['forge:ores'] : [] });
+      }
+  return out;
+}
+
 /** Put an item in the inventory like a turtle does: selected slot first, then wrap around. */
 export function addItem(world: SimWorld, body: TurtleBody, item: SimItem): void {
   const slots = body.slots;

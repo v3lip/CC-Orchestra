@@ -48,6 +48,8 @@ export interface JobRec {
     torches?: string[];
     /** The blocks those torches hang on: vein following leaves them alone. */
     torchSupports?: string[];
+    /** Slice of the last Geo Scanner scan. */
+    lastScan?: number;
   };
 }
 

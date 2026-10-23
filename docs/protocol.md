@@ -50,6 +50,7 @@ Rules both sides enforce:
    - `drop {dir, slot, count?}`: **verified drop** into the inventory `front`/`up`/`down`. It refuses with `no_inventory` unless `peripheral.wrap(side)` is an inventory (checked before *and* right before dropping), because `turtle.drop` with no inventory throws items into the world. The result data is `{item, dropped, requested, partial, chestGain, verified}`; `verified` is false if the chest count didn't rise by `dropped` (e.g. a hopper draining it). Nothing accepted → `inventory_full`.
    - `suck {dir, slot, count?}`: only from an inventory (never item entities). Data: `{taken, slots[]}`.
    - `inventoryInfo {dir}` → `{block, size, used, free, items[]}`, or `no_inventory`.
+   - `geoScan {radius}` (agent 0.3.3, radius 1-16): with an Advanced Peripherals Geo Scanner, sends every non-air block in the cube of that radius as `observe` messages flagged `scan: {radius}` (accepted within the radius instead of only next to the turtle; turtles are left out), then returns `{center, radius, count, cost}`. The server then marks every cell of the cube the scan didn't report as air, only if all `count` blocks were recorded. Fails with `no_scanner`, `pose_unknown`, or AP's reason (e.g. the 2 s cooldown).
    - `place {dir, slot}` (agent 0.3.2): places the item in `slot` (jobs use it for torches) into the adjacent cell, then inspects that cell. Data: `{item}`. Fails with CC's reason (`Cannot place block here`) or `slot N is empty`.
    - Jobs require agent ≥ 0.3.0, which has these ops and the dig guard.
 3. **Duplicates.** If a `commandId` is already in `recent`, the agent never runs it again. It re-sends the cached result (`duplicate: true`), or acks `duplicate` if it is still running.
@@ -57,7 +58,7 @@ Rules both sides enforce:
 5. **Held turtles** (paused or e-stopped) reject physical ops (`move/turn/dig/refuel/drop/suck/place`) with `held`. Inspect, calibrate and GPS are still allowed.
 6. **Connection loss.** The current atomic op finishes. Nothing else runs, because every action comes from the server. The server marks the in-flight command `unknown` (never "failed" or "succeeded" by assumption) and cancels anything queued; queued commands are **not** replayed after reconnect.
 
-Failure codes: `obstructed out_of_fuel unbreakable nothing_to_dig protected busy held expired invalid no_gps pose_unknown no_inventory inventory_full unverified failed internal`. CC's raw reason string travels in `reason`.
+Failure codes: `obstructed out_of_fuel unbreakable nothing_to_dig protected busy held expired invalid no_gps no_scanner pose_unknown no_inventory inventory_full unverified failed internal`. CC's raw reason string travels in `reason`.
 
 ## Stop / resume
 

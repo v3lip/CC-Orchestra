@@ -169,6 +169,41 @@ describe('tunnel job (TS agent)', () => {
     expect(world.get(5, 101, 0)?.name).toBe('minecraft:chest');
   });
 
+  it('Geo scanning finds a vein beside the tunnel that the turtle never looks at, and mines it', async () => {
+    for (const scan of [false, true]) {
+      const { server, world, depot } = await setup();
+      // A diamond vein running off sideways from the tunnel wall.
+      for (const z of [1, 2, 3]) world.set(5, 100, z, { name: 'minecraft:diamond_ore' });
+      const t = await sim(server, world, { fuel: 2000, upgrades: { left: 'geoScanner' } });
+      const policy = { veins: { ores: ['diamond'], maxBlocks: 16, reach: 4 }, ...(scan ? { geoScan: { every: 4, radius: 4 } } : {}) };
+      const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 8 }, policy));
+      server.jobs.start(job.id);
+      const done = await finish(server, job.id, 60000);
+      expect(done.error).toBeUndefined();
+      expect(done.status).toBe('completed');
+      const left = [1, 2, 3].filter((z) => world.get(5, 100, z)?.name === 'minecraft:diamond_ore').length;
+      if (scan) {
+        expect(left).toBe(0);
+        expect(done.progress.veinBlocks).toBe(3);
+        expect(done.progress.scans).toBe(2);
+      } else {
+        expect(left).toBe(3);
+      }
+      await server.close();
+    }
+  });
+
+  it('Geo scanning without a scanner says so once and mines on', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world, { fuel: 2000 });
+    const job = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 8 }, { geoScan: { every: 2, radius: 8 } }));
+    server.jobs.start(job.id);
+    const done = await finish(server, job.id);
+    expect(done.status).toBe('completed');
+    expect(done.progress.scans ?? 0).toBe(0);
+    expect(server.fleet.recentEvents(200).filter((e) => e.message.includes('has no Geo Scanner'))).toHaveLength(1);
+  });
+
   it('a claimed chunk ("Movement failed") pauses the job with what to do about it', async () => {
     const { server, world, depot } = await setup();
     world.claimedChunks.add('1,0');

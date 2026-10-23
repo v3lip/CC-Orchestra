@@ -382,6 +382,16 @@ peripheral = {
   end,
   find = function(ty)
     if ty == "modem" and __has_modem() then return { isWireless = function() return true end } end
+    if ty == "geoScanner" and __has_geo() then
+      return {
+        cost = function(r) return __geo_cost(r) end,
+        scan = function(r)
+          local s = __geo_scan(r)
+          if s:sub(1, 6) == "error:" then return nil, s:sub(7) end
+          return textutils.unserializeJSON(s)
+        end,
+      }
+    end
     return nil
   end,
 }

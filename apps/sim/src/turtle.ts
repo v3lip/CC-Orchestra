@@ -25,6 +25,7 @@ import {
   type Activity,
   type ErrorCode,
   DEFAULT_PROTECTED_BLOCKS,
+  MAX_OBSERVATIONS_PER_MESSAGE,
   MAX_RECENT_RESULTS,
   MOVE_OPS,
   PHYSICAL_OPS,
@@ -39,7 +40,7 @@ import {
 import { SimWorld, type TurtleBody } from './world';
 import * as physics from './physics';
 
-export const SIM_AGENT_VERSION = 'sim-0.3.2';
+export const SIM_AGENT_VERSION = 'sim-0.3.3';
 
 export interface Journal {
   commandId: string;
@@ -131,6 +132,9 @@ export class SimTurtle {
   private msgSeq = 0;
   private bootId = '';
   private scanOnMove = true;
+  /** Geo Scanner cooldown (AP: 2 s), shortened with the sim's speed. */
+  private lastGeoScan = 0;
+  private geoCooldownMs: number;
   private protectedBlocks: string[] = [...DEFAULT_PROTECTED_BLOCKS];
   private opMs: number;
 
@@ -138,6 +142,7 @@ export class SimTurtle {
     this.world = opts.world;
     this.body = opts.body;
     this.opMs = opts.opMs ?? 400;
+    this.geoCooldownMs = Math.min(2000, this.opMs * 5);
     this.world.addOccupant(this.body);
     this.boot();
   }
@@ -595,6 +600,28 @@ export class SimTurtle {
         await this.scan(gen, [dir]);
         if (!r.ok) return { ok: false, code: classifyReason(r.reason), reason: r.reason };
         return { ok: true, data: { item: item.name } };
+      }
+      case 'geoScan': {
+        const u = this.opts.upgrades ?? {};
+        if (u.left !== 'geoScanner' && u.right !== 'geoScanner') return { ok: false, code: 'no_scanner', reason: 'no Geo Scanner equipped' };
+        const pose = this.mem.pose;
+        if (pose.position !== 'known' || !pose.pos) return { ok: false, code: 'pose_unknown', reason: 'position unknown: calibrate first' };
+        const radius = args.radius as number;
+        const now = Date.now();
+        if (now - this.lastGeoScan < this.geoCooldownMs) return { ok: false, code: 'failed', reason: 'scanBlocks is on cooldown' };
+        const cost = physics.geoScanCost(radius);
+        if (b.fuel !== 'unlimited' && b.fuel < cost) return { ok: false, code: 'out_of_fuel', reason: 'Not enough fuel' };
+        await this.physical(gen);
+        this.lastGeoScan = Date.now();
+        if (b.fuel !== 'unlimited') b.fuel -= cost;
+        const center = { ...pose.pos };
+        // Positions are relative to the scanner; other turtles move, so they aren't mapped.
+        const blocks = physics.geoScan(this.world, b, radius).filter((x) => !x.name.startsWith('computercraft:turtle'));
+        for (let i = 0; i < blocks.length; i += MAX_OBSERVATIONS_PER_MESSAGE) {
+          const batch = blocks.slice(i, i + MAX_OBSERVATIONS_PER_MESSAGE).map((x) => ({ x: center.x + x.x, y: center.y + x.y, z: center.z + x.z, name: x.name }));
+          this.send({ type: 'observe', blocks: batch, scan: { radius } });
+        }
+        return { ok: true, data: { center, radius, count: blocks.length, cost } };
       }
       case 'inventoryInfo': {
         const dir = args.dir as physics.Dir;

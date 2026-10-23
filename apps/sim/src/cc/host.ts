@@ -333,6 +333,18 @@ export class CCTurtle {
       return inv ? JSON.stringify(inv.flatMap((it, i) => (it ? [{ slot: i + 1, name: it.name, count: it.count }] : []))) : undefined;
     });
     g.set('__periph_type', (side: string) => (side === 'left' || side === 'right' ? this.opts.upgrades?.[side] : undefined));
+    // Advanced Peripherals Geo Scanner, if equipped: relative positions, no air, a cooldown.
+    let lastGeoScan = 0;
+    g.set('__has_geo', () => this.opts.upgrades?.left === 'geoScanner' || this.opts.upgrades?.right === 'geoScanner');
+    g.set('__geo_cost', (r: number) => physics.geoScanCost(r));
+    g.set('__geo_scan', (r: number) => {
+      if (Date.now() - lastGeoScan < Math.min(2000, this.opMs * 5)) return 'error:scanBlocks is on cooldown';
+      const cost = physics.geoScanCost(r);
+      if (body.fuel !== 'unlimited' && body.fuel < cost) return 'error:Not enough fuel';
+      lastGeoScan = Date.now();
+      if (body.fuel !== 'unlimited') body.fuel -= cost;
+      return JSON.stringify(physics.geoScan(this.world, body, r));
+    });
     g.set('__has_modem', () => !!this.opts.gps);
     g.set('__gps', () => (this.opts.gps ? `${body.pos.x},${body.pos.y},${body.pos.z}` : undefined));
   }

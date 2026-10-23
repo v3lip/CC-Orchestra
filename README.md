@@ -57,7 +57,7 @@ Everything your turtles have seen, slice by slice at any Y level, with an ore ov
 
 ### 💎 Ore hunting
 
-Have turtles **scan the walls** as they dig, so the map shows every block around the tunnel, and **follow ore veins** out of the tunnel and back: Diamond, Coal, "any ore", or any modded ore by id. The **Ores** tab lists every ore seen but not yet mined, grouped into veins, nearest first. Click one and the map jumps there.
+Have turtles **scan the walls** as they dig, or map everything within 8–16 blocks at once with an Advanced Peripherals **Geo Scanner**, and **follow ore veins** out of the tunnel and back: Diamond, Coal, "any ore", or any modded ore by id. The **Ores** tab lists every ore seen but not yet mined, grouped into veins, nearest first. Click one and the map jumps there.
 
 ![Ores tab: ores seen but not mined, grouped into veins](docs/screenshots/ores.png)
 
@@ -126,7 +126,7 @@ Open **http://127.0.0.1:8787**, log in with the password, select turtles and dri
 npm run sim -- --lua --count 3 --data ./sim-data-lua   # run the real Lua agent instead of the TypeScript one
 ```
 
-`--chunky` (equip a Chunk Controller), `--count N`, `--speed 2` (faster actions), `--reset` (fresh world and turtles), `--no-calibrate` (start with an unknown position), `--no-gps`. Simulated turtles live in their own instance, `sim`, so their map never mixes with real data, and they're marked **SIM** everywhere.
+`--chunky` (equip a Chunk Controller), `--geo` (equip a Geo Scanner), `--count N`, `--speed 2` (faster actions), `--reset` (fresh world and turtles), `--no-calibrate` (start with an unknown position), `--no-gps`. Simulated turtles live in their own instance, `sim`, so their map never mixes with real data, and they're marked **SIM** everywhere.
 
 </details>
 
@@ -251,7 +251,7 @@ The repository is an npm workspace: `packages/protocol` (shared message types), 
 3. ✅ Reliable tunnel jobs with automatic return, unloading and resume
 4. ✅ Multi-turtle scheduling, groups, depot queues and collision handling
 5. 🟡 Branch mine, grid mine, quarry, wall scanning, ore veins, ore search and the persistent map ✅; formations to go
-6. 🟡 3D view ✅; Geo Scanner mapping next ([plan](docs/milestone-6.md))
+6. 🟡 3D view ✅; Geo Scanner mapping ✅ in the simulator, to be confirmed in-game ([plan](docs/milestone-6.md))
 7. ⬜ Formations (splitting any job between turtles) and minimap waypoints (JourneyMap / Xaero)
 
 Everything marked done has been checked in-game with [the verification checklist](docs/in-game-checklist.md), except the newest work (the 3D view, the right-click menu and instances), which is tested in the simulator so far. Day-by-day notes are in [docs/progress.md](docs/progress.md).

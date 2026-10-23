@@ -9,7 +9,7 @@
 --   * remember recent command ids so a re-delivered command never runs twice
 --   * when the connection drops, finish the current atomic op, then do nothing
 
-local AGENT_VERSION = "lua-0.3.2"
+local AGENT_VERSION = "lua-0.3.3"
 local PROTOCOL = 1
 local DIR = "/fleet"
 local CONFIG_FILE = DIR .. "/config.json"
@@ -510,6 +510,43 @@ local function doPlace(cmd)
   return okResult({ item = item.name })
 end
 
+-- Advanced Peripherals Geo Scanner: report every non-air block within the radius (a
+-- cube) as observations flagged with the scan, so the server also knows the rest is air.
+local function doGeoScan(cmd)
+  local scanner = peripheral.find("geoScanner")
+  if not scanner then return fail("no_scanner", "no Geo Scanner equipped") end
+  local pose = mem.pose
+  if pose.position ~= "known" or not pose.pos then return fail("pose_unknown", "position unknown: calibrate first") end
+  local r = cmd.args.radius
+  local okCost, cost = pcall(scanner.cost, r)
+  local ok, res, err = pcall(scanner.scan, r)
+  if not ok then return fail("failed", tostring(res)) end
+  if type(res) ~= "table" then return fail(classify(err), tostring(err or "scan failed")) end
+  local c = pose.pos
+  -- AP gives positions relative to the scanner; if a version ever gives absolute ones
+  -- (outside the radius), use them as they are.
+  local absolute = false
+  for _, b in ipairs(res) do
+    if type(b) == "table" and (math.abs(b.x or 0) > r or math.abs(b.y or 0) > r or math.abs(b.z or 0) > r) then absolute = true break end
+  end
+  local batch, count = {}, 0
+  for _, b in ipairs(res) do
+    -- Other turtles (and this one) move: never map them.
+    if type(b) == "table" and type(b.name) == "string" and not b.name:find("^computercraft:turtle") then
+      local o = absolute and { x = b.x, y = b.y, z = b.z } or { x = c.x + b.x, y = c.y + b.y, z = c.z + b.z }
+      o.name = b.name
+      batch[#batch + 1] = o
+      count = count + 1
+      if #batch >= MAX_OBSERVATIONS then
+        send({ type = "observe", blocks = batch, scan = { radius = r } })
+        batch = {}
+      end
+    end
+  end
+  if #batch > 0 then send({ type = "observe", blocks = batch, scan = { radius = r } }) end
+  return okResult({ center = vec(c), radius = r, count = count, cost = okCost and cost or nil })
+end
+
 local function doInventoryInfo(cmd)
   local inv = inventoryAt(cmd.args.dir)
   if not inv then return fail("no_inventory", "no inventory " .. cmd.args.dir) end
@@ -614,6 +651,8 @@ local function execute(cmd)
     return doInventoryInfo(cmd)
   elseif op == "place" then
     return doPlace(cmd)
+  elseif op == "geoScan" then
+    return doGeoScan(cmd)
   end
   return fail("invalid", "unsupported op " .. tostring(op))
 end
@@ -622,7 +661,7 @@ end
 
 local PHYSICAL = {
   forward = true, back = true, up = true, down = true, turnLeft = true, turnRight = true,
-  dig = true, digUp = true, digDown = true, refuel = true, drop = true, suck = true, place = true,
+  dig = true, digUp = true, digDown = true, refuel = true, drop = true, suck = true, place = true, geoScan = true,
 }
 
 local DIRS = { front = true, up = true, down = true }
@@ -637,6 +676,7 @@ local VALIDATE = {
   suck = function(a) return DIRS[a.dir] and isInt(a.slot, 1, 16) and (a.count == nil or isInt(a.count, 1, 64)) end,
   inventoryInfo = function(a) return DIRS[a.dir] == true end,
   place = function(a) return DIRS[a.dir] and isInt(a.slot, 1, 16) end,
+  geoScan = function(a) return isInt(a.radius, 1, 16) end,
   select = function(a) return isInt(a.slot, 1, 16) end,
   refuel = function(a) return a.count == nil or isInt(a.count, 0, 64) end,
   calibrate = function(a) return isInt(a.x) and isInt(a.y) and isInt(a.z) and isInt(a.heading, 0, 3) end,

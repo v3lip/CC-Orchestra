@@ -4,7 +4,7 @@
  * state and the observed map, so a run can be stopped at any step and started again
  * from the persisted checkpoint. Movement and traffic rules live in `Mover`.
  */
-import { type Box, type Dir, type Heading, type TunnelParams, type TurtleState, type Vec3, FUEL_ITEMS, HEADING_VECTORS, isOreBlock, isTorchItem, oreMatches, sectionBox } from '@ccfleet/protocol';
+import { type Box, type Dir, type Heading, type TunnelParams, type TurtleState, type Vec3, FUEL_ITEMS, HEADING_VECTORS, hasGeoScanner, isOreBlock, isTorchItem, oreMatches, sectionBox } from '@ccfleet/protocol';
 import type { Fleet } from '../fleet';
 import { type Station, eq, fmt, inBox, key, manhattan, sliceStations, tunnelLocal } from './geometry';
 import { Interrupt, JobError, Mover, isProtectedName, sleep } from './mover';
@@ -23,10 +23,20 @@ export function agentSupportsJobs(version: string): boolean {
 
 /** Placing torches needs the place op (agent 0.3.2). */
 export function agentSupportsTorches(version: string): boolean {
+  return agentAtLeast(version, 2);
+}
+
+/** Geo scanning needs the geoScan op (agent 0.3.3). */
+export function agentSupportsGeoScan(version: string): boolean {
+  return agentAtLeast(version, 3);
+}
+
+/** Agent 0.3.`patch` or newer. */
+function agentAtLeast(version: string, patch: number): boolean {
   const m = /^(?:lua|sim)-(\d+)\.(\d+)\.(\d+)/.exec(version);
   if (!m) return false;
-  const [maj, min, patch] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  return maj > 0 || min > 3 || (min === 3 && patch >= 2);
+  const [maj, min, p] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  return maj > 0 || min > 3 || (min === 3 && p >= patch);
 }
 
 const MAX_RETRIES_PER_CELL = 24;
@@ -47,6 +57,8 @@ export class JobRunner {
   private failedSpots: Vec3[] = [];
   /** Said once per stretch without torches, so the log isn't flooded. */
   private warnedNoTorches = false;
+  /** Geo scanning asked for but the turtle has no scanner (said once, then skipped). */
+  private noScanner = false;
   private m: Mover;
   readonly executor: string;
 
@@ -150,6 +162,9 @@ export class JobRunner {
     const version = this.fleet.getTurtle(this.v.turtleId)?.agentVersion ?? '';
     if (!agentSupportsJobs(version)) {
       throw new JobError('agent_outdated', `The turtle runs agent ${version || 'unknown'}; jobs need 0.3.0 or newer (verified unloading, dig protection). Run "install" on the turtle (no code needed), then resume.`);
+    }
+    if (this.v.policy.geoScan?.every && !agentSupportsGeoScan(version)) {
+      throw new JobError('agent_outdated', `The turtle runs agent ${version || 'unknown'}; Geo scanning needs 0.3.3 or newer. Run "install" on the turtle (no code needed), then resume.`);
     }
     if (this.v.policy.torches?.enabled && !agentSupportsTorches(version)) {
       throw new JobError('agent_outdated', `The turtle runs agent ${version || 'unknown'}; placing torches needs 0.3.2 or newer. Run "install" on the turtle (no code needed), then resume.`);
@@ -287,14 +302,45 @@ export class JobRunner {
       d -= s.length;
     }
     if (!seg) return;
+    let first = true;
     for (const st of sliceStations(seg, d)) {
       if (!this.inWork(st.pos)) continue;
       await this.m.moveTo(st.pos);
+      if (first) await this.geoScanIfDue(u);
+      first = false;
       for (const c of st.extra) if (this.inWork(c)) await this.clearVertical(c);
       if (this.v.policy.scanWalls) await this.scanWalls(seg, st);
       if (this.v.policy.veins?.ores.length) await this.followVeins();
       await this.placeTorch(st);
     }
+  }
+
+  // ------------------------------------------------------------------ Geo Scanner
+
+  /** Scan from here if `every` slices have passed since the last scan (policy.geoScan). */
+  private async geoScanIfDue(u: number): Promise<void> {
+    const g = this.v.policy.geoScan;
+    if (!g?.every || this.noScanner) return;
+    if (this.cp.lastScan !== undefined && u - this.cp.lastScan < g.every) return;
+    if (!hasGeoScanner(this.m.turtle().upgrades)) {
+      this.noScanner = true;
+      this.mgr.log('warn', `${this.v.name}: Geo scanning is on, but the turtle has no Geo Scanner; mining without it`, this.v.turtleId);
+      return;
+    }
+    let r = await this.m.step('geoScan', { radius: g.radius });
+    // The scanner has a 2 s cooldown: wait it out once.
+    if (r.status === 'failed' && /cooldown/i.test(r.reason ?? '')) {
+      await sleep(GEO_COOLDOWN_MS);
+      r = await this.m.step('geoScan', { radius: g.radius });
+    }
+    if (r.status === 'succeeded') this.v.progress.scans = (this.v.progress.scans ?? 0) + 1;
+    else {
+      if (r.code === 'no_scanner') this.noScanner = true;
+      this.mgr.log('info', `${this.v.name}: Geo scan failed (${r.reason}); carrying on`, this.v.turtleId);
+    }
+    this.cp.lastScan = u;
+    this.mgr.save(this.job);
+    this.mgr.broadcast(this.job);
   }
 
   // ------------------------------------------------------------------ torches
@@ -844,6 +890,9 @@ export class JobRunner {
     }
   }
 }
+
+/** Advanced Peripherals' scan cooldown (scanBlocksCooldown), plus a little. */
+const GEO_COOLDOWN_MS = 2100;
 
 /** After a failed torch, no new attempt within this many blocks of it. */
 const FAILED_TORCH_GAP = 3;

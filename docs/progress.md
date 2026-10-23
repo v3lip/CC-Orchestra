@@ -1,5 +1,14 @@
 # Progress notes
 
+## Milestone 6, part A — Geo Scanner mapping (2026-10-23)
+
+- A turtle with an Advanced Peripherals Geo Scanner maps every block within 8 blocks (up to 16, which costs a little fuel) in one scan, and the air between them. AP's scan walks the full cube, leaves out air and reports positions relative to the scanner (read from AP 0.7.7.1r's code, so the in-game probe wasn't needed to start; the agent also copes with absolute positions).
+- New agent op `geoScan {radius}` (agent 0.3.3): blocks are sent as observations flagged with the scan and accepted within the radius; then the server marks every cell of the cube the scan didn't report as air, only if all its blocks were recorded. Turtles are never mapped.
+- Jobs: **Geo scan as it goes** (every N slices, radius 8–16), waiting out the 2 s cooldown once; scanned ores feed vein following and the Ores tab. A turtle without a scanner logs it once and mines on.
+- Dashboard: **Geo scan** in the command bar, right-click a turtle → radius 8 / 16, details show **Geo Scanner** (and **Chunk Controller**) by name, scans counted on the job card. Simulator: `--geo`.
+- Tests: Lua agent scan (blocks several cells away, an air pocket, ores found, turtle not mapped, cooldown, no scanner); server (scan radius acceptance, no air marked from a scan that lost a batch); jobs (a vein running off the tunnel wall is mined with scanning and left without it; no scanner = one warning). Browser check: one radius-8 scan made 4 913 cells known and found 10 ores. Not yet tried in-game: checklist steps 37/37b.
+
+
 ## A finished turtle no longer gets stuck on the dock (2026-10-23)
 
 - Seen while making the screenshots: a turtle finished its job, unloaded, and stayed on the dock ("could not move off the dock"), so the next turtle paused with "nothing is driving it". It couldn't reach a waiting spot or where its job started: an idle turtle (which counts as a wall) stood on the only known way.

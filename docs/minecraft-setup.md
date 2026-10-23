@@ -99,6 +99,14 @@ Options in your pack:
   - **Claims keep turtles out.** A turtle counts as a *fake player*, and with FTB Chunks' defaults it can't enter or work in a claimed chunk: moves fail with CC's vague **`Movement failed`** (not "obstructed"), and a job pauses there. The dashboard now says so next to that error. Fix it in-game: open the FTB Chunks map → team settings and allow **fake players** for your team (claimed chunks stay protected from other players), or don't claim chunks the turtles work in. On a private world you can instead set `disable_protection: true` in `ftbchunks-world.snbt`, keeping claims for force-loading only.
 - **Stay nearby.**
 
+### Geo Scanner (Advanced Peripherals, optional)
+
+A Geo Scanner on a free side of a turtle (the other side keeps the pickaxe) lets it map every block within 8 blocks in one go, and the air between them, instead of only what it touches. 8 is free; up to 16 costs a little fuel. The scanner needs 2 s between scans.
+
+- **By hand:** select the turtle → **Geo scan** in the command bar (radius 8), or right-click it on the map → **Geo scan, radius 16**.
+- **In jobs:** **Geo scan as it goes** under Finding ores (every N blocks, radius 8–16). Scanned ores show up in the Ores tab, and vein following goes after the ones near the work area.
+- A turtle has two sides: with a pickaxe on one, it has room for either a Chunk Controller or a Geo Scanner, not both.
+
 ### Chunky turtles (Advanced Peripherals 0.7.7.1r)
 
 Checked against the installed jar and your config, not just the wiki:

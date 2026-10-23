@@ -106,6 +106,35 @@ describe('Lua agent: placing', () => {
   });
 });
 
+describe('Lua agent: Geo Scanner', () => {
+  it('maps every block within the radius, and the air around them, from one scan', async () => {
+    const { server, world } = await setup();
+    // A diamond 3 blocks away and a cave pocket 2 blocks away, among stone.
+    for (let x = -3; x <= 3; x++) for (let y = 97; y <= 103; y++) for (let z = -3; z <= 3; z++) world.set(x, y, z, { name: 'minecraft:stone' });
+    world.set(0, 100, 0, null);
+    world.set(3, 98, -1, { name: 'minecraft:diamond_ore' });
+    world.set(-2, 101, 2, null);
+    const t = await spawn(server, world, { x: 0, y: 100, z: 0, heading: 0 }, { upgrades: { left: 'geoScanner' } });
+    expect(server.fleet.getTurtle(t.turtleId)?.state?.upgrades).toEqual({ left: 'geoScanner' });
+    const r = await cmd(server, t.turtleId, 'geoScan', { radius: 3 });
+    expect(r.items[0]).toMatchObject({ status: 'succeeded', data: { center: { x: 0, y: 100, z: 0 }, radius: 3, count: 7 * 7 * 7 - 2 } });
+    const cell = (x: number, y: number, z: number) => server.fleet.mapCell('sim', 'minecraft:overworld', { x, y, z });
+    await waitFor(() => cell(-2, 101, 2)?.cell === 'empty', 3000, 'scanned air');
+    expect(cell(3, 98, -1)).toMatchObject({ block: 'minecraft:diamond_ore', cell: 'solid' });
+    expect(cell(-3, 103, 3)).toMatchObject({ block: 'minecraft:stone' });
+    expect(cell(0, 100, 0)?.cell).toBe('empty'); // the turtle itself is not a block on the map
+    expect(server.fleet.findOres('sim', 'minecraft:overworld').map((b) => b.block)).toEqual(['minecraft:diamond_ore']);
+    // AP's 2 s cooldown (shortened in the simulator).
+    expect((await cmd(server, t.turtleId, 'geoScan', { radius: 3 })).items[0]).toMatchObject({ status: 'failed', reason: 'scanBlocks is on cooldown' });
+  });
+
+  it('without a Geo Scanner it says so', async () => {
+    const { server, world } = await setup();
+    const t = await spawn(server, world, { x: 0, y: 100, z: 0, heading: 0 });
+    expect((await cmd(server, t.turtleId, 'geoScan', { radius: 8 })).items[0]).toMatchObject({ status: 'failed', code: 'no_scanner' });
+  });
+});
+
 describe('Lua agent: manual control', () => {
   it('moves, tracks pose, digs, fails cleanly on obstruction, and maps what it sees', async () => {
     const { server, world } = await setup();

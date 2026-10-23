@@ -29,6 +29,7 @@ const { values } = parseArgs({
     lua: { type: 'boolean', default: false },
     // Equip simulated turtles with a Chunk Controller (Advanced Peripherals) on the left.
     chunky: { type: 'boolean', default: false },
+    geo: { type: 'boolean', default: false },
   },
 });
 
@@ -97,6 +98,9 @@ async function pairingCode(name: string): Promise<string> {
 
 const turtles: SimTurtle[] = [];
 const luaTurtles: { t: CCTurtle; diskFile: string }[] = [];
+// --chunky: Chunk Controller on the left; --geo: Geo Scanner on the right.
+const simUpgrades = values.chunky || values.geo ? { ...(values.chunky ? { left: 'chunky' } : {}), ...(values.geo ? { right: 'geoScanner' } : {}) } : undefined;
+
 for (let i = 0; i < count; i++) {
   const computerId = 1000 + i;
   const bodyFile = join(dataDir, `body-${computerId}.json`);
@@ -127,7 +131,7 @@ for (let i = 0; i < count; i++) {
       files,
       opMs,
       gps: !values['no-gps'],
-      upgrades: values.chunky ? { left: 'chunky' } : undefined,
+      upgrades: simUpgrades,
       inputs: [values['no-calibrate'] ? '' : `${body.pos.x} ${body.pos.y} ${body.pos.z} ${'nesw'[body.heading]}`],
       onPrint: (m) => console.log(`[lua #${computerId}] ${m}`),
     });
@@ -151,7 +155,7 @@ for (let i = 0; i < count; i++) {
     opMs,
     initialPose,
     gps: !values['no-gps'],
-    upgrades: values.chunky ? { left: 'chunky' } : undefined,
+    upgrades: simUpgrades,
     onLog: (m) => console.log(m),
   });
   turtles.push(t);

@@ -54,7 +54,8 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 36. [ ] **Right-click menu:** select a turtle, right-click an open spot on the map (2D or 3D) → **Send … here**: it drives there through known space. Right-click a turtle: Pause / Resume / Details work. **New job starting here…** opens the job form with those coordinates.
 
-37. [ ] **Geo Scanner probe (Milestone 6, step A0):** equip a Geo Scanner on a turtle, stop the agent (Ctrl+T), type `lua`, and run `s = peripheral.find("geoScanner") print(textutils.serialise(s.scan(8)[1]))` and `print(s.cost(8), s.cost(16))`. Report what one entry looks like (fields, whether x/y/z are relative), whether air appears, and the costs. Then `reboot`.
+37. [ ] **Geo Scanner (agent 0.3.3: run `install` on the turtle):** equip an Advanced Peripherals Geo Scanner on a free side of a calibrated turtle. Its details say **Geo Scanner** under Upgrades. Select it → **Geo scan** (command bar): the map fills in around it (blocks and the air between them, 8 blocks each way, also in 3D) and nearby ores show up in the Ores tab. Right-click it → **Geo scan, radius 16**: a bigger area, a little fuel. Report if blocks land in the wrong place (offset or mirrored): positions are taken as relative to the turtle, which is how AP 0.7.7 does it.
+37b. [ ] New job with **Geo scan as it goes** (every 8, radius 8) and vein following on: the job card counts scans, and veins a few blocks into the walls get mined.
 
 38. [ ] **3D overview:** in 3D, the inset at the top right shows the 3D area (cyan), your turtles and the depot. Click somewhere in it: the 3D area moves there. **Re-centre** goes back.
 

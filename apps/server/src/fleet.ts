@@ -21,6 +21,7 @@ import {
   type ForcedChunk,
   type GroupView,
   type JobView,
+  GEO_SCAN_MAX_RADIUS,
   type MapBlock,
   type Op,
   type RecentResult,
@@ -676,6 +677,7 @@ export class Fleet {
       data: r.data,
     });
     if (r.status === 'failed') this.log('warn', `${rec.name}: ${cmd.op} failed — ${r.reason ?? r.code ?? 'unknown reason'}`, rec.id);
+    if (cmd.op === 'geoScan' && r.status === 'succeeded') this.markScannedAir(rec, r.data, cmd.sentAt ?? cmd.createdAt);
     if (rec.inflight === cmd) rec.inflight = undefined;
     if (rec.stopWait?.acked) {
       this.updateItem(rec.stopWait.batchId, rec.id, { status: 'stopped', reason: `stopped after ${cmd.op} finished` });
@@ -1097,8 +1099,11 @@ export class Fleet {
     if (r.changes > 0) this.bufferMap(rec.world, rec.dimension, [{ x, y, z, block: null, cell: 'empty', observedAt: t, source: rec.id }]);
   }
 
-  /** Record blocks a turtle observed. Only cells adjacent to its known position are accepted. */
-  observe(turtleId: string, blocks: BlockObservation[]): { accepted: number; rejected: number } {
+  /**
+   * Record blocks a turtle observed. Only cells adjacent to its known position are
+   * accepted, or within `scanRadius` for a Geo Scanner scan.
+   */
+  observe(turtleId: string, blocks: BlockObservation[], scanRadius?: number): { accepted: number; rejected: number } {
     const rec = this.turtles.get(turtleId);
     const pose = rec?.state?.pose;
     if (!rec || !pose?.pos || pose.position !== 'known') return { accepted: 0, rejected: blocks.length };
@@ -1112,7 +1117,7 @@ export class Fleet {
     tx(this.db, () => {
       for (const b of blocks) {
         const d = Math.max(Math.abs(b.x - pose.pos!.x), Math.abs(b.y - pose.pos!.y), Math.abs(b.z - pose.pos!.z));
-        if (d > 1) {
+        if (d > Math.min(scanRadius ?? 1, GEO_SCAN_MAX_RADIUS)) {
           rejected++;
           continue;
         }
@@ -1123,6 +1128,46 @@ export class Fleet {
     });
     if (out.length) this.bufferMap(rec.world, rec.dimension, out);
     return { accepted: out.length, rejected };
+  }
+
+  /**
+   * After a Geo Scanner scan: it reports every block except air in its cube, so each cell
+   * of the cube it didn't report is known empty. Only when all of the scan's blocks were
+   * accepted (else real blocks would be wiped) and the turtle is where it scanned from.
+   */
+  private markScannedAir(rec: TurtleRec, data: Record<string, unknown> | undefined, since: number): void {
+    const center = data?.center as Vec3 | undefined;
+    const radius = Number(data?.radius);
+    const count = Number(data?.count);
+    const pos = rec.state?.pose.pos;
+    if (!center || !pos || rec.state?.pose.position !== 'known' || !Number.isInteger(radius) || radius < 1 || radius > GEO_SCAN_MAX_RADIUS) return;
+    if (center.x !== pos.x || center.y !== pos.y || center.z !== pos.z) return;
+    const cube = this.queryMap({ world: rec.world, dimension: rec.dimension, x0: center.x - radius, x1: center.x + radius, z0: center.z - radius, z1: center.z + radius, y0: center.y - radius, y1: center.y + radius, limit: 200_000 });
+    const reported = new Set(cube.blocks.filter((b) => b.source === rec.id && b.observedAt >= since && b.cell !== 'empty').map((b) => `${b.x},${b.y},${b.z}`));
+    if (reported.size < count) {
+      this.log('warn', `${rec.name}: Geo Scanner reported ${count} blocks but ${reported.size} were recorded; not marking air from this scan`, rec.id);
+      return;
+    }
+    const t = now();
+    const up = this.db.prepare(
+      `INSERT INTO map_blocks (world, dimension, x, z, y, block, cell, state_json, observed_at, source) VALUES (?,?,?,?,?,NULL,'empty',NULL,?,?)
+       ON CONFLICT(world, dimension, x, z, y) DO UPDATE SET block=NULL, cell='empty', state_json=NULL, observed_at=excluded.observed_at, source=excluded.source`,
+    );
+    const known = new Map(cube.blocks.map((b) => [`${b.x},${b.y},${b.z}`, b]));
+    const out: MapBlock[] = [];
+    tx(this.db, () => {
+      for (let x = center.x - radius; x <= center.x + radius; x++)
+        for (let y = center.y - radius; y <= center.y + radius; y++)
+          for (let z = center.z - radius; z <= center.z + radius; z++) {
+            const k = `${x},${y},${z}`;
+            if (reported.has(k)) continue;
+            const b = known.get(k);
+            if (b?.cell === 'empty' && b.observedAt >= since) continue; // already seen empty just now
+            up.run(rec.world, rec.dimension, x, z, y, t, rec.id);
+            out.push({ x, y, z, block: null, cell: 'empty', observedAt: t, source: rec.id });
+          }
+    });
+    if (out.length) this.bufferMap(rec.world, rec.dimension, out);
   }
 
   /**

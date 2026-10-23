@@ -106,6 +106,16 @@ export function hasChunkLoader(u: Upgrades | undefined): boolean {
   return !!u && (u.left === CHUNKY_PERIPHERAL || u.right === CHUNKY_PERIPHERAL);
 }
 
+/** Advanced Peripherals' Geo Scanner upgrade shows up as this peripheral type. */
+export const GEO_SCANNER_PERIPHERAL = 'geoScanner';
+
+export function hasGeoScanner(u: Upgrades | undefined): boolean {
+  return !!u && (u.left === GEO_SCANNER_PERIPHERAL || u.right === GEO_SCANNER_PERIPHERAL);
+}
+
+/** Largest Geo Scanner radius (AP's scanBlocksMaxCostRadius); up to 8 costs no fuel. */
+export const GEO_SCAN_MAX_RADIUS = 16;
+
 export const TurtleState = z.object({
   pose: Pose,
   fuel: Fuel,
@@ -164,6 +174,12 @@ export const OpArgs = {
   inventoryInfo: z.object({ dir: Dir }).strict(),
   /** Place the item in `slot` (e.g. a torch) into the adjacent cell; the agent then looks at it. */
   place: z.object({ dir: Dir, slot: int().min(1).max(16) }).strict(),
+  /**
+   * Advanced Peripherals Geo Scanner: report every non-air block in the cube of `radius`
+   * around the turtle (as observations flagged with the scan), then `{center, radius,
+   * count, cost}`. The server marks the cube's unreported cells as air.
+   */
+  geoScan: z.object({ radius: int().min(1).max(16) }).strict(),
 } as const;
 export type Op = keyof typeof OpArgs;
 export const OPS = Object.keys(OpArgs) as Op[];
@@ -173,7 +189,7 @@ export const MOVE_OPS: ReadonlySet<Op> = new Set(['forward', 'back', 'up', 'down
 export const TURN_OPS: ReadonlySet<Op> = new Set(['turnLeft', 'turnRight']);
 export const DIG_OPS: ReadonlySet<Op> = new Set(['dig', 'digUp', 'digDown']);
 /** Operations refused while a turtle is held (paused or emergency-stopped). */
-export const PHYSICAL_OPS: ReadonlySet<Op> = new Set([...MOVE_OPS, ...TURN_OPS, ...DIG_OPS, 'refuel', 'drop', 'suck', 'place']);
+export const PHYSICAL_OPS: ReadonlySet<Op> = new Set([...MOVE_OPS, ...TURN_OPS, ...DIG_OPS, 'refuel', 'drop', 'suck', 'place', 'geoScan']);
 
 /** Normalised failure codes. Agents also pass CC's raw reason string. */
 export const ErrorCode = z.enum([
@@ -187,6 +203,7 @@ export const ErrorCode = z.enum([
   'expired',
   'invalid',
   'no_gps',
+  'no_scanner',
   'pose_unknown',
   'no_inventory',
   'inventory_full',
@@ -312,6 +329,8 @@ export const ObserveMsg = z.object({
   ...env,
   type: z.literal('observe'),
   blocks: luaArray(BlockObservation, MAX_OBSERVATIONS_PER_MESSAGE),
+  /** Blocks from a Geo Scanner scan: accepted within `radius` of the turtle, not just next to it. */
+  scan: z.object({ radius: int().min(1).max(16) }).optional(),
 });
 
 export const LogMsg = z.object({
@@ -694,6 +713,16 @@ export const JobPolicy = z.object({
       spacing: int().min(4).max(32).default(10),
     })
     .default({}),
+  /**
+   * With a Geo Scanner equipped: scan every `every` slices (0 = off), so the map and the
+   * Ores tab get everything within `radius`, and vein following sees those ores.
+   */
+  geoScan: z
+    .object({
+      every: int().min(0).max(64).default(0),
+      radius: int().min(1).max(16).default(8),
+    })
+    .default({}),
 });
 export type JobPolicy = z.infer<typeof JobPolicy>;
 
@@ -801,6 +830,8 @@ export interface JobView {
     /** Torches placed, and spots left dark because the turtle had none. */
     torchesPlaced?: number;
     torchesMissed?: number;
+    /** Geo Scanner scans made. */
+    scans?: number;
   };
   estimate: JobEstimate;
   /** Next cells on the turtle's planned route (for the map). */

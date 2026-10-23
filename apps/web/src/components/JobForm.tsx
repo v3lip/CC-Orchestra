@@ -3,6 +3,7 @@ import type { Box, Heading, JobEstimate, JobInput, Strategy, StrategyInput, Tunn
 import { HEADING_VECTORS, ORE_PRESETS, sectionBox, segmentsFor } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { useFleet } from '../lib/store';
+import { hasScanner } from '../lib/status';
 import { Field } from './DepotsPanel';
 
 const overlap = (a: Box, b: Box) =>
@@ -91,6 +92,9 @@ function initialForm(turtleId: string, depotId: string) {
     veinReach: '6',
     torches: false,
     torchSpacing: '10',
+    geoScan: false,
+    geoEvery: '8',
+    geoRadius: '8',
   };
 }
 
@@ -250,6 +254,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
         reach: Number(v.veinReach) || 6,
       },
       torches: { enabled: v.torches, spacing: Math.min(32, Math.max(4, Number(v.torchSpacing) || 10)) },
+      geoScan: { every: v.geoScan ? Math.min(64, Math.max(1, Number(v.geoEvery) || 8)) : 0, radius: Math.min(16, Math.max(1, Number(v.geoRadius) || 8)) },
     }),
     [v],
   );
@@ -552,8 +557,29 @@ export function JobForm({ onDone }: { onDone: () => void }) {
         )}
         <p className="mt-1 text-[11px] text-dim">
           When it sees a matching ore near the work area, it mines the whole connected vein (looking around at every block), then goes back and continues. Outside the work area it only ever digs the
-          matching ore. {policy.veins.ores.length > 0 && !v.scanWalls ? 'Tip: turn on wall scanning, or it only sees ores in front, above and below.' : ''}
+          matching ore. {policy.veins.ores.length > 0 && !v.scanWalls && !v.geoScan ? 'Tip: turn on wall scanning (or Geo scanning), or it only sees ores in front, above and below.' : ''}
         </p>
+        <label className="mt-1.5 flex items-start gap-1 text-[11px]">
+          <input type="checkbox" className="mt-0.5" checked={v.geoScan} onChange={(e) => setV({ ...v, geoScan: e.target.checked })} />
+          <span>
+            Geo scan as it goes <span className="text-dim">(needs an Advanced Peripherals Geo Scanner on the turtle: maps every block around it, so the Ores tab fills up and veins further in are found)</span>
+          </span>
+        </label>
+        {v.geoScan && (
+          <>
+            <div className="mt-1 grid grid-cols-2 gap-1">
+              <Field label="Every … blocks">
+                <input value={v.geoEvery} onChange={set('geoEvery')} className="inp num" />
+              </Field>
+              <Field label="Radius (8 free, up to 16)">
+                <input value={v.geoRadius} onChange={set('geoRadius')} className="inp num" />
+              </Field>
+            </div>
+            {drafts.some((d) => !hasScanner(d.turtle)) && (
+              <p className="mt-1 text-[11px] text-amber-300">{drafts.filter((d) => !hasScanner(d.turtle)).map((d) => d.turtle.name).join(', ')} has no Geo Scanner: it will mine without scanning.</p>
+            )}
+          </>
+        )}
       </div>
 
       <div className="rounded border border-edge bg-panel-2 p-2">

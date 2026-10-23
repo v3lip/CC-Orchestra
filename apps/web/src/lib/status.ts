@@ -1,5 +1,5 @@
 import type { DisplayStatus, TurtleView } from '@ccfleet/protocol';
-import { hasChunkLoader, isOreBlock } from '@ccfleet/protocol';
+import { CHUNKY_PERIPHERAL, GEO_SCANNER_PERIPHERAL, hasChunkLoader, hasGeoScanner, isOreBlock } from '@ccfleet/protocol';
 
 export const STATUS_COLOR: Record<DisplayStatus, string> = {
   idle: '#38bdf8',
@@ -95,6 +95,19 @@ export function blockColor(name: string): string {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
   return `hsl(${Math.abs(h) % 360} 35% 42%)`;
+}
+
+/** Has an Advanced Peripherals Geo Scanner equipped. */
+export function hasScanner(t: TurtleView | undefined): boolean {
+  return hasGeoScanner(t?.state?.upgrades);
+}
+
+/** A readable name for an upgrade's peripheral type. */
+export function upgradeLabel(type: string | undefined): string {
+  if (!type) return 'tool / none';
+  if (type === CHUNKY_PERIPHERAL) return 'Chunk Controller';
+  if (type === GEO_SCANNER_PERIPHERAL) return 'Geo Scanner';
+  return type;
 }
 
 /** Has an Advanced Peripherals Chunk Controller equipped (keeps its own chunk loaded). */
