@@ -42,7 +42,7 @@ Everything your turtles have seen, slice by slice at any Y level, with an ore ov
 
 ### ⛏️ Mining jobs that finish
 
-**Tunnel**, **branch mine**, **grid mine** and **quarry**. Pick a turtle and a depot (a dock next to a chest, plus an optional fuel chest), then press start. When the inventory fills or fuel runs low, the turtle drives home, unloads, refuels and goes back to where it left off. Tick **Place torches** and it lights the tunnels as it goes, with torches it takes from the depot. Progress is drawn on the map as it digs.
+**Tunnel**, **branch mine**, **grid mine** and **quarry**. Pick a turtle and a depot (a dock next to a chest, plus an optional fuel chest), then press start. When the inventory fills or fuel runs low, the turtle drives home, unloads, refuels and goes back to where it left off. Tick **Place torches** and it lights the tunnels as it goes, with torches it takes from the depot. Progress is drawn on the map as it digs. **Queue** several jobs for a turtle and it works through them one after another on its own.
 
 <table>
 <tr>

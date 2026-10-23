@@ -204,6 +204,47 @@ describe('tunnel job (TS agent)', () => {
     expect(server.fleet.recentEvents(200).filter((e) => e.message.includes('has no Geo Scanner'))).toHaveLength(1);
   });
 
+  it('queued jobs start by themselves, one after the other, in queue order', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world, { fuel: 2000 });
+    const first = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 3 }));
+    // A second job for a busy turtle is refused unless it's queued.
+    expect(() => server.jobs.createJob({ ...tunnel(t.turtleId!, depot.id, { length: 3 }), params: { origin: { x: 2, y: 100, z: 3 }, heading: 1, width: 1, height: 2, length: 3 } })).toThrow(/queue/);
+    const later = server.jobs.createJob({ ...tunnel(t.turtleId!, depot.id), name: 'Later', params: { origin: { x: 2, y: 100, z: -3 }, heading: 1, width: 1, height: 2, length: 3 }, queue: true });
+    const next = server.jobs.createJob({ ...tunnel(t.turtleId!, depot.id), name: 'Next', params: { origin: { x: 2, y: 100, z: 3 }, heading: 1, width: 1, height: 2, length: 3 }, queue: true });
+    expect([later.status, next.status]).toEqual(['queued', 'queued']);
+    // Queued jobs still count when checking overlaps.
+    expect(() => server.jobs.createJob({ ...tunnel(t.turtleId!, depot.id), params: { origin: { x: 3, y: 100, z: 3 }, heading: 1, width: 1, height: 2, length: 3 }, queue: true })).toThrow(/overlaps job "Next"/);
+    server.jobs.queueFirst(next.id);
+    server.jobs.start(later.id); // asking a queued job to start just leaves it queued
+    expect(server.jobs.getJob(later.id)?.status).toBe('queued');
+    server.jobs.start(first.id);
+    const ids = [first.id, next.id, later.id];
+    const done = await waitFor(() => {
+      const js = ids.map((id) => server.jobs.getJob(id)!);
+      return js.every((j) => j.status === 'completed' || j.status === 'paused') ? js : undefined;
+    }, 90000, 'all three jobs');
+    expect(done.map((j) => j.error?.message)).toEqual([undefined, undefined, undefined]);
+    expect(done.map((j) => j.status)).toEqual(['completed', 'completed', 'completed']);
+    expect(done[0].finishedAt! <= done[1].startedAt! && done[1].finishedAt! <= done[2].startedAt!).toBe(true);
+    for (const z of [0, 3, -3]) for (let x = 2; x <= 4; x++) expect(world.get(x, 100, z), `${x} 100 ${z}`).toBeNull();
+  }, 120000);
+
+  it('a cancelled job does not start the queue; the next one waits for the operator', async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world, { fuel: 2000 });
+    const first = server.jobs.createJob(tunnel(t.turtleId!, depot.id, { length: 8 }));
+    const next = server.jobs.createJob({ ...tunnel(t.turtleId!, depot.id), name: 'Next', params: { origin: { x: 2, y: 100, z: 3 }, heading: 1, width: 1, height: 2, length: 3 }, queue: true });
+    server.jobs.start(first.id);
+    await waitFor(() => (server.jobs.getJob(first.id)?.progress.cellsCleared ?? 0) >= 2, 30000, 'some progress');
+    server.jobs.cancel(first.id);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(server.jobs.getJob(next.id)?.status).toBe('queued');
+    // Started by hand, it runs now (nothing ahead of it any more).
+    server.jobs.start(next.id);
+    expect((await finish(server, next.id)).status).toBe('completed');
+  }, 120000);
+
   it('a claimed chunk ("Movement failed") pauses the job with what to do about it', async () => {
     const { server, world, depot } = await setup();
     world.claimedChunks.add('1,0');

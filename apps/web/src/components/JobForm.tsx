@@ -84,6 +84,7 @@ function initialForm(turtleId: string, depotId: string) {
     veinMax: '48',
     veinReach: '6',
     torches: false,
+    queue: false,
     torchSpacing: '10',
     geoScan: false,
     geoEvery: '8',
@@ -185,7 +186,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
     for (const id of targetIds) {
       const t = turtles[id];
       if (!t) continue;
-      if (t.job) skipped.push({ name: t.name, why: `already has job "${t.job.name}"` });
+      if (t.job && !v.queue) skipped.push({ name: t.name, why: `already has job "${t.job.name}" (tick Queue)` });
       else eligible.push(t);
     }
     if (split) {
@@ -265,6 +266,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
         depotId: v.depotId,
         turtleId: d.turtle.id,
         policy,
+        queue: v.queue,
         ...d.strategy,
       })),
     [drafts, multi, v.name, v.depotId, defaultName, policy],
@@ -314,8 +316,8 @@ export function JobForm({ onDone }: { onDone: () => void }) {
         const name = v.name || defaultName;
         const r = await api.createCampaign(
           split && whole
-            ? { name, depotId: v.depotId, policy, start, split: { ...whole, turtleIds: drafts.map((d) => d.turtle.id) } }
-            : { name, depotId: v.depotId, policy, start, jobs: drafts.map((d) => ({ turtleId: d.turtle.id, ...d.strategy })) },
+            ? { name, depotId: v.depotId, policy, start, queue: v.queue, split: { ...whole, turtleIds: drafts.map((d) => d.turtle.id) } }
+            : { name, depotId: v.depotId, policy, start, queue: v.queue, jobs: drafts.map((d) => ({ turtleId: d.turtle.id, ...d.strategy })) },
         );
         useFleet.getState().toast('info', `Created ${r.jobs.length} jobs${start ? ' and started them' : ''}${r.skipped.length ? `; skipped ${r.skipped.join(', ')}` : ''}`);
       } else {
@@ -567,6 +569,23 @@ export function JobForm({ onDone }: { onDone: () => void }) {
           </>
         )}
       </div>
+
+      {targetIds.some((id) => turtles[id]?.job) && (
+        <label className="flex items-start gap-1 rounded border border-violet-800/60 bg-violet-950/30 p-2 text-[11px]">
+          <input type="checkbox" className="mt-0.5" checked={v.queue} onChange={(e) => setV({ ...v, queue: e.target.checked })} />
+          <span>
+            Queue after the current job{' '}
+            <span className="text-dim">
+              ({targetIds
+                .map((id) => turtles[id])
+                .filter((t) => t?.job)
+                .map((t) => `${t!.name}: "${t!.job!.name}"`)
+                .join(', ')}
+              ). It starts by itself when that one completes. Start positions are worked out now, from where the turtles stand.)
+            </span>
+          </span>
+        </label>
+      )}
 
       <div className="rounded border border-edge bg-panel-2 p-2">
         <div className="mb-1 text-[10px] uppercase tracking-wide text-dim">Lighting</div>

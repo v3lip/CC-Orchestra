@@ -6,6 +6,7 @@ import { JobForm } from './JobForm';
 import { isChunky, shortItem } from '../lib/status';
 
 const STATUS_TONE: Record<JobView['status'], string> = {
+  queued: 'bg-violet-900/70 text-violet-200',
   ready: 'bg-slate-700 text-slate-200',
   running: 'bg-emerald-900/70 text-emerald-200',
   pausing: 'bg-amber-900/70 text-amber-200',
@@ -124,8 +125,20 @@ function CampaignCard({ id, jobs }: { id: string; jobs: JobView[] }) {
   );
 }
 
+/** Where a queued job stands: its place in its turtle's queue and the job ahead of it all. */
+function queueInfo(job: JobView, jobs: Record<string, JobView>): { place: number; current?: JobView } {
+  const mine = Object.values(jobs).filter((j) => j.turtleId === job.turtleId);
+  const queue = mine.filter((j) => j.status === 'queued').sort((a, b) => (a.queueOrder ?? 0) - (b.queueOrder ?? 0));
+  const current = mine.find((j) => j.status === 'ready' || j.status === 'running' || j.status === 'pausing' || j.status === 'paused');
+  return { place: queue.findIndex((j) => j.id === job.id) + 1, current };
+}
+
+const ordinal = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`;
+
 function JobCard({ job }: { job: JobView }) {
   const turtle = useFleet((s) => s.turtles[job.turtleId]);
+  const allJobs = useFleet((s) => s.jobs);
+  const queued = job.status === 'queued' ? queueInfo(job, allJobs) : undefined;
   const depot = useFleet((s) => s.depots[job.depotId]);
   const focus = useFleet((s) => s.focus);
   const p = job.progress;
@@ -138,6 +151,11 @@ function JobCard({ job }: { job: JobView }) {
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${STATUS_TONE[job.status]}`}>{job.status}</span>
         {active && <span className="text-[10px] text-dim">{job.phase}</span>}
       </div>
+      {queued && (
+        <div className="mt-1 text-violet-200">
+          {ordinal(queued.place)} in {turtle?.name ?? 'the turtle'}'s queue{queued.current ? `, after "${queued.current.name}"` : ' (nothing ahead of it: start it when you like)'}. Starts by itself when the job before it completes.
+        </div>
+      )}
       <div className="mt-0.5 text-[11px] text-dim">
         <button className="hover:underline" onClick={() => focus(job.turtleId, true)}>
           {turtle?.name ?? 'removed turtle'}
@@ -190,16 +208,22 @@ function JobCard({ job }: { job: JobView }) {
         </div>
       )}
       <div className="mt-1.5 flex gap-2">
+        {queued && queued.place > 1 && <Btn onClick={() => act(api.queueFirst(job.id))}>Run next</Btn>}
+        {queued && !queued.current && (
+          <Btn tone="go" onClick={() => act(api.startJob(job.id))}>
+            Start now
+          </Btn>
+        )}
         {(job.status === 'ready' || job.status === 'paused') && (
           <Btn tone="go" onClick={() => act(api.startJob(job.id))}>
             {job.status === 'ready' ? 'Start' : 'Resume'}
           </Btn>
         )}
         {job.status === 'running' && <Btn onClick={() => act(api.pauseJob(job.id))}>Pause</Btn>}
-        {(job.status === 'ready' || job.status === 'running' || job.status === 'paused' || job.status === 'pausing') && (
+        {(job.status === 'queued' || job.status === 'ready' || job.status === 'running' || job.status === 'paused' || job.status === 'pausing') && (
           <Btn onClick={() => confirm(`Cancel "${job.name}"? Progress is kept on the map but the job ends.`) && act(api.cancelJob(job.id))}>Cancel</Btn>
         )}
-        {(job.status === 'completed' || job.status === 'cancelled' || job.status === 'ready' || job.status === 'paused') && (
+        {(job.status === 'completed' || job.status === 'cancelled' || job.status === 'queued' || job.status === 'ready' || job.status === 'paused') && (
           <Btn onClick={() => confirm(`Delete "${job.name}"?`) && act(api.deleteJob(job.id))}>Delete</Btn>
         )}
       </div>

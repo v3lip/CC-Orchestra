@@ -738,6 +738,8 @@ export const JobInput = z
     policy: JobPolicy.partial().default({}),
     /** Boxes that must never be dug, even inside the job volume. */
     exclusions: z.array(Box).max(32).default([]),
+    /** If the turtle already has an unfinished job: queue this one after it (else refused). */
+    queue: z.boolean().optional(),
   })
   .and(StrategyInput);
 export type JobInput = z.input<typeof JobInput>;
@@ -753,6 +755,8 @@ export const CampaignInput = z
     depotId: z.string(),
     policy: JobPolicy.partial().default({}),
     start: z.boolean().default(false),
+    /** Turtles that already have an unfinished job get this one queued after it. */
+    queue: z.boolean().optional(),
     jobs: z.array(z.object({ turtleId: z.string() }).and(StrategyInput)).min(1).max(64).optional(),
     /** One tunnel or quarry split side by side into one lane per turtle. */
     split: z
@@ -783,7 +787,8 @@ export interface ChunkNeed {
   forced: boolean;
 }
 
-export type JobStatus = 'ready' | 'running' | 'pausing' | 'paused' | 'completed' | 'cancelled';
+/** 'queued': waits for its turtle's current job to complete, then starts by itself. */
+export type JobStatus = 'queued' | 'ready' | 'running' | 'pausing' | 'paused' | 'completed' | 'cancelled';
 export type JobPhase = 'idle' | 'traveling' | 'mining' | 'waiting' | 'returning' | 'unloading' | 'refueling' | 'done';
 
 export interface JobEstimate {
@@ -843,6 +848,8 @@ export interface JobView {
   createdAt: number;
   updatedAt: number;
   startedAt?: number;
+  /** Order among its turtle's queued jobs (smaller first). */
+  queueOrder?: number;
   finishedAt?: number;
 }
 

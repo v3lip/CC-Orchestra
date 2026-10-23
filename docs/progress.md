@@ -1,5 +1,13 @@
 # Progress notes
 
+## Job queues (2026-10-23)
+
+- A turtle can have jobs queued behind its current one: **Queue after the current job** in the job form (for single jobs and campaigns), new job status `queued`. When the current job completes, the next queued job starts by itself, in queue order; **Run next** moves a queued job to the front, **Start now** starts one with nothing ahead of it. After a cancel or a problem the queue waits for you.
+- The next job starts only once the previous job's runner has fully ended (its clean-up leaves traffic control and frees the dock; done any earlier, it would undo the new job's set-up).
+- Queued jobs count when checking for overlapping work areas, and keep their depot from being deleted.
+- Tests: three jobs for one turtle run in queue order (with Run next), a second job for a busy turtle is refused unless queued, a queued job overlapping another is refused; after a cancel the queue doesn't move on by itself. Browser check: queue cards ("2nd in Sim 1's queue, after …"), and the next job started by itself when the first completed.
+
+
 ## Formations: sharing branch and grid mines (2026-10-23)
 
 - **Share one** in the job form now works for every job type, not just tunnels and quarries. One shared function (`splitStrategy`) is used by the server and the form's preview:

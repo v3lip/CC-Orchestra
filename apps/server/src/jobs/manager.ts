@@ -55,6 +55,8 @@ export interface JobRec {
 }
 
 const ACTIVE: ReadonlySet<JobStatus> = new Set(['ready', 'running', 'pausing', 'paused']);
+/** Jobs that will still dig: the active ones and those queued behind them. */
+const UNFINISHED: ReadonlySet<JobStatus> = new Set([...ACTIVE, 'queued']);
 
 export class JobManager {
   private jobs = new Map<string, JobRec>();
@@ -204,7 +206,7 @@ export class JobManager {
 
   deleteDepot(id: string): void {
     if (!this.depots.has(id)) throw new ApiError(404, 'unknown depot');
-    if ([...this.jobs.values()].some((j) => j.view.depotId === id && ACTIVE.has(j.view.status))) throw new ApiError(409, 'a job still uses this depot');
+    if ([...this.jobs.values()].some((j) => j.view.depotId === id && UNFINISHED.has(j.view.status))) throw new ApiError(409, 'a job still uses this depot');
     this.depots.delete(id);
     this.db.prepare('DELETE FROM depots WHERE id=?').run(id);
     this.fleet.broadcast({ type: 'depot_removed', id });
@@ -449,15 +451,15 @@ export class JobManager {
 
   createJob(input: unknown): JobView {
     const j = JobSchema.parse(input);
-    this.validateNew([{ turtleId: j.turtleId, segments: segmentsFor(j), name: j.name }], j.depotId);
-    return this.insertJob(input);
+    this.validateNew([{ turtleId: j.turtleId, segments: segmentsFor(j), name: j.name }], j.depotId, !!j.queue);
+    return this.insertJob(input, {}, !!j.queue && !!this.activeJobFor(j.turtleId));
   }
 
   /**
    * Check a set of new tunnels before creating any: known depot and turtles, no turtle
    * with an unfinished job or used twice, no overlap with each other or unfinished jobs.
    */
-  private validateNew(specs: { turtleId: string; segments: TunnelParams[]; name: string }[], depotId: string): void {
+  private validateNew(specs: { turtleId: string; segments: TunnelParams[]; name: string }[], depotId: string, queue = false): void {
     const depot = this.depots.get(depotId);
     if (!depot) throw new ApiError(400, 'unknown depot');
     const seen = new Set<string>();
@@ -466,12 +468,12 @@ export class JobManager {
       if (!turtle) throw new ApiError(400, 'unknown turtle');
       if (seen.has(s.turtleId)) throw new ApiError(400, `${turtle.name} is listed twice`);
       seen.add(s.turtleId);
-      if (this.activeJobFor(s.turtleId)) throw new ApiError(409, `${turtle.name} already has an unfinished job`);
-      if (this.tasks.has(s.turtleId)) throw new ApiError(409, `${turtle.name} is busy with a go-to task`);
+      if (this.activeJobFor(s.turtleId) && !queue) throw new ApiError(409, `${turtle.name} already has an unfinished job (queue this one after it instead)`);
+      if (this.tasks.has(s.turtleId) && !this.activeJobFor(s.turtleId)) throw new ApiError(409, `${turtle.name} is busy with a go-to task`);
       // Two jobs digging the same cells would fight over them (and their turtles would collide).
       const overlaps = (a: TunnelParams[], b: TunnelParams[]) => a.some((x) => b.some((y) => boxesOverlap(sectionBox(x), sectionBox(y))));
       for (const o of this.jobs.values()) {
-        if (!ACTIVE.has(o.view.status) || o.view.world !== depot.world || o.view.dimension !== depot.dimension) continue;
+        if (!UNFINISHED.has(o.view.status) || o.view.world !== depot.world || o.view.dimension !== depot.dimension) continue;
         if (overlaps(s.segments, o.view.segments)) throw new ApiError(409, `${s.name}: the work area overlaps job "${o.view.name}". Move it or finish/cancel that job first.`);
       }
       specs.slice(i + 1).forEach((o) => {
@@ -480,7 +482,7 @@ export class JobManager {
     });
   }
 
-  private insertJob(input: unknown, extra: Pick<JobView, 'campaignId' | 'campaignName' | 'lane'> = {}): JobView {
+  private insertJob(input: unknown, extra: Pick<JobView, 'campaignId' | 'campaignName' | 'lane'> = {}, queued = false): JobView {
     const j = JobSchema.parse(input);
     const depot = this.depots.get(j.depotId)!;
     const turtle = this.fleet.getTurtle(j.turtleId)!;
@@ -501,7 +503,8 @@ export class JobManager {
         depotId: depot.id,
         turtleId: j.turtleId,
         ...extra,
-        status: 'ready',
+        status: queued ? 'queued' : 'ready',
+        ...(queued ? { queueOrder: this.nextQueueOrder(j.turtleId) } : {}),
         phase: 'idle',
         progress: { unitsDone: 0, unitsTotal: segments.reduce((n, s) => n + s.length, 0), cellsCleared: 0, cellsSkipped: 0, trips: 0, itemsUnloaded: 0, finds: {}, veinBlocks: 0 },
         estimate,
@@ -512,8 +515,49 @@ export class JobManager {
     };
     this.jobs.set(rec.view.id, rec);
     this.save(rec);
-    this.log('info', `Job "${rec.view.name}" created for ${turtle.name}`, turtle.id);
+    this.log('info', `Job "${rec.view.name}" ${queued ? 'queued' : 'created'} for ${turtle.name}`, turtle.id);
     return rec.view;
+  }
+
+  // ------------------------------------------------------------------ queues
+
+  /** A turtle's queued jobs, next first. */
+  queueOf(turtleId: string): JobRec[] {
+    return [...this.jobs.values()].filter((j) => j.view.turtleId === turtleId && j.view.status === 'queued').sort((a, b) => (a.view.queueOrder ?? 0) - (b.view.queueOrder ?? 0));
+  }
+
+  private nextQueueOrder(turtleId: string): number {
+    return Math.max(0, ...this.queueOf(turtleId).map((j) => j.view.queueOrder ?? 0)) + 1;
+  }
+
+  /** Put a queued job first in its turtle's queue. */
+  queueFirst(id: string): JobView {
+    const job = this.mustGet(id);
+    if (job.view.status !== 'queued') throw new ApiError(409, `job is ${job.view.status}, not queued`);
+    job.view.queueOrder = Math.min(...this.queueOf(job.view.turtleId).map((j) => j.view.queueOrder ?? 0)) - 1;
+    this.save(job);
+    for (const j of this.queueOf(job.view.turtleId)) this.broadcast(j);
+    return job.view;
+  }
+
+  /**
+   * A job's runner has ended: if the job completed, the turtle's next queued job starts.
+   * (Not after a cancel or a problem: that's the operator's call.) Runs once the old
+   * runner is fully done, so its clean-up can't undo the new one's set-up.
+   */
+  private afterRun(job: JobRec): void {
+    if (job.view.status !== 'completed') return;
+    const next = this.queueOf(job.view.turtleId)[0];
+    if (!next || this.activeJobFor(job.view.turtleId)) return;
+    next.view.status = 'ready';
+    next.view.queueOrder = undefined;
+    this.save(next);
+    try {
+      this.log('info', `Next in the queue for ${this.fleet.getTurtle(job.view.turtleId)?.name ?? job.view.turtleId}: "${next.view.name}"`, job.view.turtleId);
+      this.start(next.view.id);
+    } catch (e) {
+      this.log('warn', `Queued job "${next.view.name}" could not start: ${(e as Error).message}`, job.view.turtleId);
+    }
   }
 
   private mustGet(id: string): JobRec {
@@ -524,6 +568,12 @@ export class JobManager {
 
   start(id: string): JobView {
     const job = this.mustGet(id);
+    if (job.view.status === 'queued') {
+      // Still behind another job: it starts by itself when that one completes.
+      if (this.activeJobFor(job.view.turtleId)) return job.view;
+      job.view.status = 'ready';
+      job.view.queueOrder = undefined;
+    }
     if (job.view.status !== 'ready' && job.view.status !== 'paused') throw new ApiError(409, `job is ${job.view.status}`);
     if (this.runners.has(id)) throw new ApiError(409, 'job is still stopping; try again in a moment');
     this.droppedAt.delete(id);
@@ -535,7 +585,10 @@ export class JobManager {
     this.save(job);
     this.log('info', `Job "${job.view.name}" ${job.view.progress.unitsDone || job.checkpoint.servicing ? 'resumed' : 'started'}`, job.view.turtleId);
     const runner = new JobRunner(this, this.fleet, this.traffic, job);
-    const p = runner.run().finally(() => this.runners.delete(id));
+    const p = runner.run().finally(() => {
+      this.runners.delete(id);
+      this.afterRun(job);
+    });
     this.runners.set(id, p);
     return job.view;
   }
@@ -559,8 +612,9 @@ export class JobManager {
   cancel(id: string): JobView {
     const job = this.mustGet(id);
     this.droppedAt.delete(id);
-    if (!ACTIVE.has(job.view.status)) throw new ApiError(409, `job is ${job.view.status}`);
+    if (!UNFINISHED.has(job.view.status)) throw new ApiError(409, `job is ${job.view.status}`);
     job.view.status = 'cancelled';
+    job.view.queueOrder = undefined;
     job.view.phase = 'done';
     job.view.pauseReason = 'cancelled by operator';
     job.view.finishedAt = now();
@@ -703,9 +757,9 @@ export class JobManager {
         return { turtleId: j.turtleId, strategy, segments: segmentsFor(strategy), name: c.jobs!.length > 1 ? `${c.name} · ${nameOf(j.turtleId)}` : c.name };
       });
     }
-    this.validateNew(specs, c.depotId);
+    this.validateNew(specs, c.depotId, !!c.queue);
     const jobs = specs.map((s) =>
-      this.insertJob({ name: s.name, ...s.strategy, depotId: c.depotId, turtleId: s.turtleId, policy: c.policy }, { campaignId, campaignName: c.name, lane: s.lane }),
+      this.insertJob({ name: s.name, ...s.strategy, depotId: c.depotId, turtleId: s.turtleId, policy: c.policy }, { campaignId, campaignName: c.name, lane: s.lane }, !!c.queue && !!this.activeJobFor(s.turtleId)),
     );
     this.log('info', `Campaign "${c.name}": ${jobs.length} job(s)${skipped.length ? `; skipped ${skipped.join(', ')} (more turtles than there are parts to share)` : ''}`);
     if (c.start) for (const j of jobs) this.start(j.id);

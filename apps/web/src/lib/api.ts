@@ -61,6 +61,7 @@ export const api = {
   startJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/start`, {}),
   pauseJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/pause`, {}),
   cancelJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/cancel`, {}),
+  queueFirst: (id: string) => req<JobView>('POST', `/api/jobs/${id}/queue-first`, {}),
   deleteJob: (id: string) => req<{ ok: true }>('DELETE', `/api/jobs/${id}`),
   setForcedChunk: (c: { world: string; dimension: string; cx: number; cz: number; forced: boolean }) => req<unknown>('POST', '/api/forced-chunks', c),
   createCampaign: (c: CampaignInput) => req<{ campaignId: string; jobs: JobView[]; skipped: string[] }>('POST', '/api/campaigns', c),

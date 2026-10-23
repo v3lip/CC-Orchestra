@@ -68,6 +68,10 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 47. [ ] **Shared branch mine:** line up 2–3 turtles at the start, the first one facing the rock. Select them → Jobs → + New job → Branch → **Share one**. The list shows "corridor + N branches" for the turtle in front and "N branches" for the others. **Create & start**: the first digs the corridor; the others wait ("waiting for … to open the way") and dig their branches as the corridor reaches them.
 48. [ ] **Shared grid mine:** line up turtles side by side facing the rock → Grid → **Share one**: each gets a band of tunnels in front of it; all finish and the whole grid is dug.
 
+### Job queues
+
+49. [ ] Give a working turtle a second job: select it → Jobs → + New job → tick **Queue after the current job** → Create & start. The new card says "queued · 1st in …'s queue, after …". When the first job completes, the queued one starts by itself (the turtle drives to its start).
+
 ### Instances (several worlds or servers)
 
 41. [ ] Log out. The login screen has an **Instance** list; your current world shows there (existing data is in `main` unless you named it otherwise). Choose **＋ New instance…**, name it after the other server or save, and log in: the fleet list is empty and says how many turtles are in other instances.
