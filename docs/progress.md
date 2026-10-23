@@ -1,5 +1,15 @@
 # Progress notes
 
+## Formations: sharing branch and grid mines (2026-10-23)
+
+- **Share one** in the job form now works for every job type, not just tunnels and quarries. One shared function (`splitStrategy`) is used by the server and the form's preview:
+  - tunnels and quarries: side-by-side lanes (as before);
+  - grid mines: bands of whole tunnels, left to right by where the turtles stand;
+  - branch mines: the turtle nearest the start digs the corridor, and the branches are dealt out in turn between all of them (two turtles: left and right branches). New optional branch params `corridor: false` and `branchIds`.
+- A turtle whose next station can't be reached yet (its branch, before the corridor gets there) waits while a partner in its campaign is mining, instead of pausing with "no route".
+- Tests: the split itself (branch shares cover the mine exactly once; grid bands; extra turtles skipped); a branch mine shared by two turtles where the corridor digger is slow (the other waits twice and digs its branches; without the waiting it pauses with "no route"); a grid mine shared by two turtles. Browser check: three turtles on a 32-long branch mine → corridor + 7, 7 and 6 branches. Not yet tried in-game: checklist steps 47-48.
+
+
 ## Faster ore search for big maps (2026-10-23)
 
 - With Geo scanning the map grows by up to ~36 000 cells per scan. The Ores tab's search read every cell of the world (no index can serve `block LIKE '%ore%'`): ~200 ms per 2 million cells, during which the server (SQLite is synchronous) answers nobody.

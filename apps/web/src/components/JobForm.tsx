@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Box, Heading, JobEstimate, JobInput, Strategy, StrategyInput, TunnelParams, TurtleView } from '@ccfleet/protocol';
-import { HEADING_VECTORS, ORE_PRESETS, sectionBox, segmentsFor } from '@ccfleet/protocol';
+import { HEADING_VECTORS, ORE_PRESETS, branchIds, sectionBox, segmentsFor, splitStrategy } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { useFleet } from '../lib/store';
 import { hasScanner } from '../lib/status';
@@ -17,28 +17,21 @@ const STRATEGIES: { id: Strategy; label: string; help: string }[] = [
   { id: 'grid', label: 'Grid', help: 'Grid mine: parallel tunnels across an area at one level, a few blocks apart — exposes every block of the area for the fewest blocks dug. Best with wall scanning on.' },
 ];
 
-type Area = { origin: { x: number; y: number; z: number }; heading: Heading; width: number };
+/** How "Share one" divides each kind of job between the selected turtles. */
+const SHARE_HELP: Record<Strategy, string> = {
+  tunnel: 'The tunnel is divided side by side into one lane per turtle, assigned left to right by where they stand.',
+  quarry: 'The quarry is divided side by side into one lane per turtle (each the full depth), assigned left to right by where they stand.',
+  grid: 'The grid is divided into bands of whole tunnels, one per turtle, assigned left to right by where they stand.',
+  branch: 'The turtle nearest the start digs the corridor; the branches are dealt out between all of them (two turtles: one takes the left branches, the other the right). Branch turtles wait for the corridor to reach their next branch.',
+};
 
-/** Same lane split as the server: one lane per turtle, assigned left to right. */
-function splitLanes<T extends Area>(p: T, ts: TurtleView[]): { lanes: { turtle: TurtleView; params: T }[]; left: TurtleView[] } {
-  const n = Math.min(ts.length, p.width);
-  if (n === 0) return { lanes: [], left: ts };
-  const r = HEADING_VECTORS[(p.heading + 1) % 4];
-  const along = (t: TurtleView) => {
-    const q = t.state?.pose.pos;
-    return q ? (q.x - p.origin.x) * r.x + (q.z - p.origin.z) * r.z : Infinity;
-  };
-  const ordered = [...ts].sort((a, b) => along(a) - along(b));
-  const base = Math.floor(p.width / n);
-  const extra = p.width % n;
-  const lanes: { turtle: TurtleView; params: T }[] = [];
-  let offset = 0;
-  for (let i = 0; i < n; i++) {
-    const width = base + (i < extra ? 1 : 0);
-    lanes.push({ turtle: ordered[i], params: { ...p, origin: { x: p.origin.x + r.x * offset, y: p.origin.y, z: p.origin.z + r.z * offset }, width } });
-    offset += width;
+/** What a turtle's share is, for the list under the form. */
+function partLabel(s: StrategyInput): string {
+  if (s.strategy === 'branch') {
+    const n = (s.params.branchIds ?? branchIds(s.params)).length;
+    return `${s.params.corridor === false ? '' : 'corridor + '}${n} branch${n === 1 ? '' : 'es'}`;
   }
-  return { lanes, left: ordered.slice(n) };
+  return `${s.params.width} wide`;
 }
 
 /** The cell in front of the turtle, at its level, in its facing. */
@@ -153,8 +146,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
 
-  const canSplit = v.strategy === 'tunnel' || v.strategy === 'quarry';
-  const split = multi && canSplit && v.layout === 'split';
+  const split = multi && v.layout === 'split';
   const mode = multi && !split ? 'front' : v.originMode;
   const targetIds = multi ? selection : v.turtleId ? [v.turtleId] : [];
   const defaultName = STRATEGIES.find((s) => s.id === v.strategy)!.label;
@@ -199,10 +191,11 @@ export function JobForm({ onDone }: { onDone: () => void }) {
     if (split) {
       const start = mode === 'front' ? turtles[anchorId] && frontOf(turtles[anchorId]) : manualStart();
       const all = start && buildStrategy(v, start.origin, start.heading);
-      if (!all || (all.strategy !== 'tunnel' && all.strategy !== 'quarry')) return { drafts, skipped, whole: undefined };
-      const s = splitLanes(all.params as Area & typeof all.params, eligible);
-      for (const t of s.left) skipped.push({ name: t.name, why: 'more turtles than columns' });
-      for (const l of s.lanes) drafts.push({ turtle: l.turtle, strategy: { strategy: all.strategy, params: l.params } as StrategyInput });
+      if (!all) return { drafts, skipped, whole: undefined };
+      // The same split the server makes.
+      const s = splitStrategy(all, eligible.map((t) => ({ id: t.id, pos: t.state?.pose.pos })));
+      for (const id of s.skipped) skipped.push({ name: turtles[id].name, why: 'more turtles than there are parts to share' });
+      for (const p of s.parts) drafts.push({ turtle: turtles[p.turtleId], strategy: p.strategy });
       return { drafts, skipped, whole: all };
     }
     for (const t of eligible) {
@@ -321,7 +314,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
         const name = v.name || defaultName;
         const r = await api.createCampaign(
           split && whole
-            ? { name, depotId: v.depotId, policy, start, split: { ...(whole as Extract<StrategyInput, { strategy: 'tunnel' | 'quarry' }>), turtleIds: drafts.map((d) => d.turtle.id) } }
+            ? { name, depotId: v.depotId, policy, start, split: { ...whole, turtleIds: drafts.map((d) => d.turtle.id) } }
             : { name, depotId: v.depotId, policy, start, jobs: drafts.map((d) => ({ turtleId: d.turtle.id, ...d.strategy })) },
         );
         useFleet.getState().toast('info', `Created ${r.jobs.length} jobs${start ? ' and started them' : ''}${r.skipped.length ? `; skipped ${r.skipped.join(', ')}` : ''}`);
@@ -392,13 +385,8 @@ export function JobForm({ onDone }: { onDone: () => void }) {
           <button onClick={() => setV({ ...v, layout: 'each' })} className={tab(!split)}>
             One each
           </button>
-          <button
-            disabled={!canSplit}
-            onClick={() => setV({ ...v, layout: 'split' })}
-            className={`${tab(split)} disabled:opacity-40`}
-            title={canSplit ? 'One wide area split side by side into one lane per turtle' : 'Branch mines are one per turtle'}
-          >
-            Share one (lanes)
+          <button onClick={() => setV({ ...v, layout: 'split' })} className={tab(split)} title={SHARE_HELP[v.strategy]}>
+            Share one
           </button>
         </div>
       )}
@@ -414,9 +402,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
       )}
       {mode === 'front' ? (
         <p className="text-[11px] text-dim">
-          {split
-            ? 'The area is divided side by side into one lane per turtle, assigned left to right by where they stand.'
-            : `Starts in the cell in front of ${multi ? 'each' : 'the'} turtle, at its level, going the way it faces.`}{' '}
+          {split ? SHARE_HELP[v.strategy] : `Starts in the cell in front of ${multi ? 'each' : 'the'} turtle, at its level, going the way it faces.`}{' '}
           {v.strategy === 'quarry' ? 'The quarry goes down from that level.' : ''}
         </p>
       ) : (
@@ -617,7 +603,7 @@ export function JobForm({ onDone }: { onDone: () => void }) {
               <span className="truncate text-ink">{d.turtle.name}</span>
               <span className="text-dim">
                 from {d.strategy.params.origin.x} {d.strategy.params.origin.y} {d.strategy.params.origin.z} {['N', 'E', 'S', 'W'][d.strategy.params.heading]}
-                {split ? ` · ${d.strategy.params.width} wide` : ''}
+                {split ? ` · ${partLabel(d.strategy)}` : ''}
               </span>
             </li>
           ))}

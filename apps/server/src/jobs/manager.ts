@@ -24,11 +24,12 @@ import {
   hasChunkLoader,
   sectionBox,
   segmentsFor,
+  splitStrategy,
 } from '@ccfleet/protocol';
 import type { Db } from '../db';
 import { ApiError, type Fleet } from '../fleet';
 import { newId, now } from '../util';
-import { boxesOverlap, chunkOf, eq, fmt, inBox, jobChunks, key, lanes, manhattan, splitTunnel } from './geometry';
+import { boxesOverlap, chunkOf, eq, fmt, inBox, jobChunks, key, lanes, manhattan } from './geometry';
 import { JobRunner } from './runner';
 import { Interrupt, JobError, Mover } from './mover';
 import { Traffic } from './traffic';
@@ -684,16 +685,18 @@ export class JobManager {
     const nameOf = (id: string) => this.fleet.getTurtle(id)?.name ?? id;
     if (c.split) {
       const sp = c.split;
-      const turtles = sp.turtleIds.map((id) => ({ id, pos: this.fleet.getTurtle(id)?.state?.pose.pos }));
-      // Lanes split the width; for a quarry each lane keeps the full depth.
-      const asTunnel: TunnelParams = sp.strategy === 'tunnel' ? sp.params : { origin: sp.params.origin, heading: sp.params.heading, width: sp.params.width, height: 1, length: sp.params.length };
-      const r = splitTunnel(asTunnel, turtles);
+      const whole = { strategy: sp.strategy, params: sp.params } as StrategyInput;
+      const r = splitStrategy(whole, sp.turtleIds.map((id) => ({ id, pos: this.fleet.getTurtle(id)?.state?.pose.pos })));
       skipped = r.skipped.map(nameOf);
-      specs = r.lanes.map((l) => {
-        const strategy: StrategyInput =
-          sp.strategy === 'tunnel' ? { strategy: 'tunnel', params: l.params } : { strategy: 'quarry', params: { ...sp.params, origin: l.params.origin, width: l.params.width } };
-        return { turtleId: l.turtleId, strategy, segments: segmentsFor(strategy), name: `${c.name} · lane ${l.index + 1}/${r.lanes.length} · ${nameOf(l.turtleId)}`, lane: { index: l.index, count: r.lanes.length } };
-      });
+      const part = (i: number, n: number) =>
+        whole.strategy === 'branch' ? (i === 0 ? 'corridor + branches' : `branches ${i + 1}/${n}`) : `${whole.strategy === 'grid' ? 'band' : 'lane'} ${i + 1}/${n}`;
+      specs = r.parts.map((pt) => ({
+        turtleId: pt.turtleId,
+        strategy: pt.strategy,
+        segments: segmentsFor(pt.strategy),
+        name: `${c.name} · ${part(pt.index, pt.count)} · ${nameOf(pt.turtleId)}`,
+        lane: { index: pt.index, count: pt.count },
+      }));
     } else {
       specs = c.jobs!.map((j) => {
         const strategy = { strategy: j.strategy, params: j.params } as StrategyInput;
@@ -704,7 +707,7 @@ export class JobManager {
     const jobs = specs.map((s) =>
       this.insertJob({ name: s.name, ...s.strategy, depotId: c.depotId, turtleId: s.turtleId, policy: c.policy }, { campaignId, campaignName: c.name, lane: s.lane }),
     );
-    this.log('info', `Campaign "${c.name}": ${jobs.length} job(s)${skipped.length ? `; skipped ${skipped.join(', ')} (more turtles than columns)` : ''}`);
+    this.log('info', `Campaign "${c.name}": ${jobs.length} job(s)${skipped.length ? `; skipped ${skipped.join(', ')} (more turtles than there are parts to share)` : ''}`);
     if (c.start) for (const j of jobs) this.start(j.id);
     return { campaignId, jobs: jobs.map((j) => this.jobs.get(j.id)!.view), skipped };
   }

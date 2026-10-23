@@ -87,7 +87,7 @@ function CampaignCard({ id, jobs }: { id: string; jobs: JobView[] }) {
         </button>
         <span className="truncate font-semibold">{jobs[0].campaignName ?? 'Campaign'}</span>
         <span className="text-[10px] text-dim">
-          {jobs.length} turtles{jobs[0].lane ? ' · split lanes' : ''}
+          {jobs.length} turtles{jobs[0].lane ? ' · sharing one job' : ''}
         </span>
       </div>
       <div className="mt-1.5 h-1.5 overflow-hidden rounded bg-slate-800">

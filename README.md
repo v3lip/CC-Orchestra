@@ -63,7 +63,7 @@ Have turtles **scan the walls** as they dig, or map everything within 8–16 blo
 
 ### 🐢 A real fleet
 
-- **Campaigns:** one job per turtle, or one tunnel or quarry split into lanes.
+- **Campaigns:** one job per turtle, or **one job shared** between them: tunnels and quarries in lanes, grid mines in bands of tunnels, and branch mines with one turtle on the corridor and the branches dealt out.
 - **Traffic control:** turtles reserve the cells ahead of them, give way early when they meet head-on, and detect deadlocks.
 - **Shared depot:** a queue and waiting spots, so turtles take turns at the chest.
 - **Groups**, multi-select and an **emergency stop** for the whole fleet.
@@ -250,9 +250,9 @@ The repository is an npm workspace: `packages/protocol` (shared message types), 
 2. ✅ Real Lua turtles: pairing, telemetry, calibrated position, manual control
 3. ✅ Reliable tunnel jobs with automatic return, unloading and resume
 4. ✅ Multi-turtle scheduling, groups, depot queues and collision handling
-5. 🟡 Branch mine, grid mine, quarry, wall scanning, ore veins, ore search and the persistent map ✅; formations to go
+5. ✅ Branch mine, grid mine, quarry, wall scanning, ore veins, ore search and the persistent map; sharing branch and grid mines between turtles (in the simulator so far)
 6. 🟡 3D view ✅; Geo Scanner mapping ✅ in the simulator, to be confirmed in-game ([plan](docs/milestone-6.md))
-7. ⬜ Formations (splitting any job between turtles) and minimap waypoints (JourneyMap / Xaero)
+7. ⬜ Minimap waypoints (JourneyMap / Xaero)
 
 Everything marked done has been checked in-game with [the verification checklist](docs/in-game-checklist.md), except the newest work (the 3D view, the right-click menu and instances), which is tested in the simulator so far. Day-by-day notes are in [docs/progress.md](docs/progress.md).
 

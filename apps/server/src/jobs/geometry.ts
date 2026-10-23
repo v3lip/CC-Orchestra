@@ -93,29 +93,6 @@ export function sliceStations(p: TunnelParams, d: number): Station[] {
   return d % 2 === 0 ? seq : seq.reverse();
 }
 
-/**
- * Split a tunnel's width into side-by-side lanes, one per turtle (at most one per
- * column). Turtles are assigned left to right by where they stand, so their paths to
- * their lanes don't cross. Returns the lanes and the turtles left without one.
- */
-export function splitTunnel(p: TunnelParams, turtles: { id: string; pos?: Vec3 }[]): { lanes: { turtleId: string; params: TunnelParams; index: number }[]; skipped: string[] } {
-  const n = Math.min(turtles.length, p.width);
-  const { r } = frame(p.heading as Heading);
-  const along = (t: { pos?: Vec3 }) => (t.pos ? (t.pos.x - p.origin.x) * r.x + (t.pos.z - p.origin.z) * r.z : Infinity);
-  const ordered = [...turtles].sort((a, b) => along(a) - along(b));
-  const base = Math.floor(p.width / n);
-  const extra = p.width % n;
-  const lanesOut: { turtleId: string; params: TunnelParams; index: number }[] = [];
-  let offset = 0;
-  for (let i = 0; i < n; i++) {
-    const width = base + (i < extra ? 1 : 0);
-    const o = tunnelCell(p, 0, offset, 0);
-    lanesOut.push({ turtleId: ordered[i].id, index: i, params: { ...p, origin: o, width } });
-    offset += width;
-  }
-  return { lanes: lanesOut, skipped: ordered.slice(n).map((t) => t.id) };
-}
-
 export const chunkOf = (p: { x: number; z: number }) => ({ cx: Math.floor(p.x / 16), cz: Math.floor(p.z / 16) });
 
 /**

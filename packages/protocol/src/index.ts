@@ -623,6 +623,10 @@ export const BranchParams = z.object({
   spacing: int().min(2).max(16),
   branchLength: int().min(1).max(64),
   sides: z.enum(['both', 'left', 'right']),
+  /** Shared between turtles (see splitStrategy): false = branches only, someone else digs the corridor. */
+  corridor: z.boolean().optional(),
+  /** Only these branches (see branchIds); absent = all. */
+  branchIds: z.array(int().min(0).max(2048)).max(1024).optional(),
 });
 export type BranchParams = z.infer<typeof BranchParams>;
 
@@ -753,7 +757,7 @@ export const CampaignInput = z
     /** One tunnel or quarry split side by side into one lane per turtle. */
     split: z
       .object({ turtleIds: z.array(z.string()).min(1).max(16) })
-      .and(z.discriminatedUnion('strategy', [z.object({ strategy: z.literal('tunnel'), params: TunnelParams }), z.object({ strategy: z.literal('quarry'), params: QuarryParams })]))
+      .and(StrategyInput)
       .optional(),
   })
   .refine((c) => !!c.jobs !== !!c.split, 'give either jobs or split');
@@ -926,22 +930,97 @@ export function segmentsFor(s: StrategyInput): TunnelParams[] {
   const r = HEADING_VECTORS[(p.heading + 1) % 4];
   const cell = (d: number, w: number) => ({ x: p.origin.x + f.x * d + r.x * w, y: p.origin.y, z: p.origin.z + f.z * d + r.z * w });
   const out: TunnelParams[] = [];
+  const corridor = p.corridor !== false;
+  const want = p.branchIds ? new Set(p.branchIds) : undefined;
   let start = 0;
-  for (let d = p.spacing; d < p.length; d += p.spacing) {
-    out.push({ origin: cell(start, 0), heading: p.heading, width: p.width, height: p.height, length: d - start + 1 });
-    if (p.sides !== 'right') {
+  for (let d = p.spacing, k = 0; d < p.length; d += p.spacing, k++) {
+    if (corridor) out.push({ origin: cell(start, 0), heading: p.heading, width: p.width, height: p.height, length: d - start + 1 });
+    if (p.sides !== 'right' && (!want || want.has(2 * k))) {
       const c = cell(d, 0);
       const l = HEADING_VECTORS[(p.heading + 3) % 4];
       out.push({ origin: { x: c.x + l.x, y: c.y, z: c.z + l.z }, heading: ((p.heading + 3) % 4) as Heading, width: 1, height: p.height, length: p.branchLength });
     }
-    if (p.sides !== 'left') {
+    if (p.sides !== 'left' && (!want || want.has(2 * k + 1))) {
       const c = cell(d, p.width - 1);
       out.push({ origin: { x: c.x + r.x, y: c.y, z: c.z + r.z }, heading: ((p.heading + 1) % 4) as Heading, width: 1, height: p.height, length: p.branchLength });
     }
     start = d + 1;
   }
-  if (start < p.length) out.push({ origin: cell(start, 0), heading: p.heading, width: p.width, height: p.height, length: p.length - start });
+  if (corridor && start < p.length) out.push({ origin: cell(start, 0), heading: p.heading, width: p.width, height: p.height, length: p.length - start });
   return out;
+}
+
+/**
+ * The branches of a branch mine in mining order: the k-th branch point (k+1)*spacing
+ * along the corridor has a left branch 2k and a right branch 2k+1 (per `sides`).
+ */
+export function branchIds(p: BranchParams): number[] {
+  const out: number[] = [];
+  for (let d = p.spacing, k = 0; d < p.length; d += p.spacing, k++) {
+    if (p.sides !== 'right') out.push(2 * k);
+    if (p.sides !== 'left') out.push(2 * k + 1);
+  }
+  return out;
+}
+
+export interface SplitPart {
+  turtleId: string;
+  strategy: StrategyInput;
+  /** Which part of how many (lanes left to right; for a branch mine, part 0 digs the corridor). */
+  index: number;
+  count: number;
+}
+
+/**
+ * Share one job between turtles ("formations"). Tunnels and quarries are split side by
+ * side into lanes, grid mines into bands of whole tunnels, both assigned left to right by
+ * where the turtles stand. A branch mine is shared along its corridor: the turtle nearest
+ * the start digs the corridor, and the branches are dealt out in turn (two turtles: one
+ * takes the left branches, the other the right). Turtles beyond what can be shared are
+ * returned as skipped.
+ */
+export function splitStrategy(whole: StrategyInput, turtles: { id: string; pos?: Vec3 }[]): { parts: SplitPart[]; skipped: string[] } {
+  const p = whole.params;
+  const r = HEADING_VECTORS[(p.heading + 1) % 4];
+  const along = (t: { pos?: Vec3 }) => (t.pos ? (t.pos.x - p.origin.x) * r.x + (t.pos.z - p.origin.z) * r.z : Infinity);
+  const at = (w: number) => ({ x: p.origin.x + r.x * w, y: p.origin.y, z: p.origin.z + r.z * w });
+  if (whole.strategy === 'branch') {
+    const bp = whole.params;
+    const ids = branchIds(bp);
+    const n = Math.max(1, Math.min(turtles.length, ids.length));
+    const near = (t: { pos?: Vec3 }) => (t.pos ? Math.abs(t.pos.x - bp.origin.x) + Math.abs(t.pos.y - bp.origin.y) + Math.abs(t.pos.z - bp.origin.z) : Infinity);
+    const ordered = [...turtles].sort((a, b) => near(a) - near(b));
+    if (n === 1) return { parts: ordered.length ? [{ turtleId: ordered[0].id, strategy: whole, index: 0, count: 1 }] : [], skipped: ordered.slice(1).map((t) => t.id) };
+    const parts = ordered.slice(0, n).map((t, i) => ({
+      turtleId: t.id,
+      strategy: { strategy: 'branch' as const, params: { ...bp, corridor: i === 0, branchIds: ids.filter((_, j) => j % n === i) } },
+      index: i,
+      count: n,
+    }));
+    return { parts, skipped: ordered.slice(n).map((t) => t.id) };
+  }
+  const ordered = [...turtles].sort((a, b) => along(a) - along(b));
+  if (whole.strategy === 'grid') {
+    const g = whole.params;
+    const tunnels = Math.floor((g.width - 1) / g.spacing) + 1;
+    const n = Math.min(ordered.length, tunnels);
+    const parts: SplitPart[] = [];
+    for (let i = 0, first = 0; i < n; i++) {
+      const count = Math.floor(tunnels / n) + (i < tunnels % n ? 1 : 0);
+      parts.push({ turtleId: ordered[i].id, strategy: { strategy: 'grid', params: { ...g, origin: at(first * g.spacing), width: (count - 1) * g.spacing + 1 } }, index: i, count: n });
+      first += count;
+    }
+    return { parts, skipped: ordered.slice(n).map((t) => t.id) };
+  }
+  // Tunnel or quarry: lanes across the width (a quarry's lanes keep the full depth).
+  const n = Math.min(ordered.length, p.width);
+  const parts: SplitPart[] = [];
+  for (let i = 0, offset = 0; i < n; i++) {
+    const width = Math.floor(p.width / n) + (i < p.width % n ? 1 : 0);
+    parts.push({ turtleId: ordered[i].id, strategy: { ...whole, params: { ...whole.params, origin: at(offset), width } } as StrategyInput, index: i, count: n });
+    offset += width;
+  }
+  return { parts, skipped: ordered.slice(n).map((t) => t.id) };
 }
 
 function gridSegments(p: GridParams): TunnelParams[] {

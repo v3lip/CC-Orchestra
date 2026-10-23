@@ -29,7 +29,7 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 *20–32 reported working in-game by the user (2026-10-18). Turtles meeting head-on bumped at first; fixed by giving way early (30).*
 
 20. [x] **Waiting spots:** Depots → Edit → drive a turtle to an open cell near the dock (off the main path) → "+ position" → Save. Repeat for a second spot. They show as dashed **W** squares on the map.
-21. [x] **Shared tunnel:** line up 2–3 turtles side by side facing the rock. Select them → Jobs → + New job → Tunnel → **Share one (lanes)**, width ≥ number of turtles. The preview shows one lane in front of each turtle. **Create & start**. A campaign card appears with combined progress.
+21. [x] **Shared tunnel:** line up 2–3 turtles side by side facing the rock. Select them → Jobs → + New job → Tunnel → **Share one**, width ≥ number of turtles. The preview shows one lane in front of each turtle. **Create & start**. A campaign card appears with combined progress.
 22. [x] When two turtles need the dock at once, one goes to a waiting spot (job note: *waiting for the dock … at …*) and docks when the other has left. **Without waiting spots** it should still come back and wait a few blocks from the dock, out of the other turtle's way, not at the end of its tunnel.
 23. [x] **Pause all / Resume all** on the campaign card. Also select two of the turtles: the "Jobs of N selected turtles" bar pauses/resumes just those.
 24. [x] **Go to:** select one turtle, Control → **Go to…**, enter a nearby coordinate in known space. It drives there without digging. Pressing W during the trip stops it.
@@ -62,6 +62,11 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 39. [ ] **Progress and routes:** while a job runs, the dug part of its area is filled in 3D. Send a turtle somewhere (right-click → Send … here): a blue route runs ahead of it to a marked target, in 2D and 3D, and disappears when it arrives.
 
 40. [ ] **Follow and keys:** select a turtle that's working, open 3D, press **G**: the camera stays on it as it moves. Right-drag stops following. **X**, **C**, **O**, **H** toggle x-ray, cut, overview and re-centre; typing in a text field doesn't trigger them.
+
+### Sharing branch and grid mines
+
+47. [ ] **Shared branch mine:** line up 2–3 turtles at the start, the first one facing the rock. Select them → Jobs → + New job → Branch → **Share one**. The list shows "corridor + N branches" for the turtle in front and "N branches" for the others. **Create & start**: the first digs the corridor; the others wait ("waiting for … to open the way") and dig their branches as the corridor reaches them.
+48. [ ] **Shared grid mine:** line up turtles side by side facing the rock → Grid → **Share one**: each gets a band of tunnels in front of it; all finish and the whole grid is dug.
 
 ### Instances (several worlds or servers)
 

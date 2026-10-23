@@ -305,7 +305,7 @@ export class JobRunner {
     let first = true;
     for (const st of sliceStations(seg, d)) {
       if (!this.inWork(st.pos)) continue;
-      await this.m.moveTo(st.pos);
+      await this.moveToStation(st.pos);
       if (first) await this.geoScanIfDue(u);
       first = false;
       for (const c of st.extra) if (this.inWork(c)) await this.clearVertical(c);
@@ -313,6 +313,39 @@ export class JobRunner {
       if (this.v.policy.veins?.ores.length) await this.followVeins();
       await this.placeTorch(st);
     }
+  }
+
+  /**
+   * Go to a station. In a shared job a partner may still have to open the way (the
+   * corridor of a branch mine shared between turtles): while one is working, wait for it
+   * instead of giving up with "no route".
+   */
+  private async moveToStation(p: Vec3): Promise<void> {
+    for (;;) {
+      try {
+        await this.m.moveTo(p);
+        if (this.v.phase === 'waiting') this.mgr.setPhase(this.job, 'mining');
+        this.setNote(undefined);
+        return;
+      } catch (e) {
+        if (!(e instanceof JobError) || e.code !== 'no_route') throw e;
+        const partners = this.workingPartners();
+        if (!partners.length) throw e;
+        this.mgr.setPhase(this.job, 'waiting');
+        this.setNote(`waiting for ${partners.join(', ')} to open the way to ${fmt(p)}`);
+        await sleep(PARTNER_WAIT_MS);
+        this.m.checkActive();
+      }
+    }
+  }
+
+  /** Names of the other turtles of this job's campaign that are mining right now. */
+  private workingPartners(): string[] {
+    if (!this.v.campaignId) return [];
+    return this.mgr
+      .listJobs()
+      .filter((j) => j.campaignId === this.v.campaignId && j.id !== this.v.id && j.status === 'running')
+      .map((j) => this.fleet.getTurtle(j.turtleId)?.name ?? j.turtleId);
   }
 
   // ------------------------------------------------------------------ Geo Scanner
@@ -890,6 +923,9 @@ export class JobRunner {
     }
   }
 }
+
+/** How often a turtle waiting for a partner to open the way tries again. */
+const PARTNER_WAIT_MS = 2000;
 
 /** Advanced Peripherals' scan cooldown (scanBlocksCooldown), plus a little. */
 const GEO_COOLDOWN_MS = 2100;

@@ -305,6 +305,58 @@ describe('campaigns', () => {
     expect(world.spilled).toBe(0);
   }, 150000);
 
+  it('a branch mine shared by two turtles: one digs the corridor, the other waits for it and digs branches', async () => {
+    const { server, world, depot } = await site();
+    // A slow corridor digger: B has to wait longer than a re-plan or two.
+    const a = await spawnTurtle(server, world, { x: 1, y: 100, z: 1, heading: 1 }, { opMs: 200, fuel: 2000 });
+    const b = await spawnTurtle(server, world, { x: 1, y: 100, z: 3, heading: 1 }, { opMs: 4, fuel: 2000 });
+    sims.push(a, b);
+    // The rock is mapped already, so B knows at once that it can't get to its branches yet.
+    const rock: BlockObservation[] = [];
+    for (let x = 2; x <= 16; x++) for (let y = 99; y <= 102; y++) for (let z = -3; z <= 5; z++) rock.push({ x, y, z, name: 'minecraft:stone' });
+    server.fleet.importObservations('sim', 'minecraft:overworld', rock, 'test');
+    const params = { origin: { x: 2, y: 100, z: 1 }, heading: 1 as const, width: 1, height: 2, length: 13, spacing: 4, branchLength: 3, sides: 'both' as const };
+    const r = server.jobs.createCampaign({ name: 'Shared', depotId: depot.id, start: true, split: { strategy: 'branch', params, turtleIds: [b.turtleId!, a.turtleId!] } });
+    expect(r.jobs.map((j) => j.name)).toEqual([expect.stringContaining('corridor + branches'), expect.stringContaining('branches 2/2')]);
+    expect(r.jobs[0].turtleId).toBe(a.turtleId); // the one in front of the start digs the corridor
+    let waited = false;
+    const watch = setInterval(() => {
+      const jb = server.jobs.getJob(r.jobs[1].id);
+      if (jb?.phase === 'waiting' && jb.note?.includes('to open the way')) waited = true;
+    }, 5);
+    const done = await finishAll(server, r.jobs.map((j) => j.id), 120000);
+    clearInterval(watch);
+    expect(done.map((j) => j.error?.message)).toEqual([undefined, undefined]);
+    expect(done.map((j) => j.status)).toEqual(['completed', 'completed']);
+    expect(waited).toBe(true);
+    // Everything dug: the corridor, the left branches (north) and the right ones (south).
+    const left: string[] = [];
+    for (let x = 2; x <= 14; x++) for (const y of [100, 101]) if (world.get(x, y, 1)) left.push(`corridor ${x} ${y}`);
+    for (const x of [6, 10, 14]) for (let k = 1; k <= 3; k++) for (const y of [100, 101]) {
+      if (world.get(x, y, 1 - k)) left.push(`left ${x} ${y}`);
+      if (world.get(x, y, 1 + k)) left.push(`right ${x} ${y}`);
+    }
+    expect(left).toEqual([]);
+    expect(done[1].progress.cellsCleared).toBe(3 * 3 * 2); // three right branches, 3 long, 2 high
+  }, 180000);
+
+  it('a grid mine shared by two turtles: each takes a band of whole tunnels', async () => {
+    const { server, world, depot } = await site();
+    const a = await spawnTurtle(server, world, { x: 1, y: 100, z: 0, heading: 1 }, { opMs: 4, fuel: 2000 });
+    const b = await spawnTurtle(server, world, { x: 1, y: 100, z: 6, heading: 1 }, { opMs: 4, fuel: 2000 });
+    sims.push(a, b);
+    const params = { origin: { x: 2, y: 100, z: 0 }, heading: 1 as const, width: 7, length: 6, height: 2, spacing: 3 };
+    const r = server.jobs.createCampaign({ name: 'Grid', depotId: depot.id, start: true, split: { strategy: 'grid', params, turtleIds: [a.turtleId!, b.turtleId!] } });
+    expect(r.jobs.map((j) => [j.turtleId, (j.params as { width: number }).width])).toEqual([
+      [a.turtleId, 4],
+      [b.turtleId, 1],
+    ]);
+    const done = await finishAll(server, r.jobs.map((j) => j.id), 120000);
+    expect(done.map((j) => j.error?.message)).toEqual([undefined, undefined]);
+    expect(done.map((j) => j.status)).toEqual(['completed', 'completed']);
+    for (const z of [0, 3, 6]) for (let x = 2; x <= 7; x++) for (const y of [100, 101]) expect(world.get(x, y, z), `${x} ${y} ${z}`).toBeNull();
+  }, 180000);
+
   it('a finished turtle that cannot get back out still clears the dock', async () => {
     server = await startServer();
     const world = openWorld();
