@@ -4,7 +4,7 @@
 
 **Mission control for your [CC: Tweaked](https://tweaked.cc/) mining turtles.**
 
-Pair your turtles once, then run them from your browser: a live map of everything they've seen, mining jobs that survive crashes and restarts, ore hunting, and a whole fleet that shares the tunnels without getting in each other's way.
+Pair your turtles once, then run them from your browser: a live 2D and 3D map of everything they've seen, mining jobs that survive crashes and restarts, ore hunting with Geo Scanners, job queues that keep turtles busy while you're away, and a whole fleet that shares the tunnels without getting in each other's way.
 
 ![Minecraft 1.16.5 · 1.21.1](https://img.shields.io/badge/Minecraft-1.16.5%20%C2%B7%201.21.1-62b47a)
 ![CC: Tweaked](https://img.shields.io/badge/CC%3A%20Tweaked-1.100%2B-f0c040)
@@ -30,7 +30,8 @@ CC Orchestra takes a different approach: **the brain lives on your PC, not on th
 - 🧭 **Turtles never guess where they are.** Position comes from calibration or GPS and is tracked move by move. If a move's outcome is unknown, the turtle is marked *uncertain* instead of quietly drifting off course.
 - 🛡️ **It won't wreck your base.** Turtles never dig chests or other inventories, and refuse protected blocks (spawners, beds, portals, other computers…). In a job they only dig the area you gave them, plus any ore veins you asked them to follow.
 - 🗺️ **You see everything.** Every block a turtle has looked at goes on a shared map, in 2D and 3D, including every ore it walked past.
-- 🐢🐢🐢 **Many turtles, one plan.** Split a quarry between six turtles; they reserve cells, give way to each other in tunnels and take turns at the depot chest.
+- 🐢🐢🐢 **Many turtles, one plan.** Share a quarry, a grid or a branch mine between several turtles; they reserve cells, give way to each other in tunnels and take turns at the depot chest.
+- 📬 **Set it and forget it.** Queue up jobs, and get a Discord or Slack message when one finishes or needs you.
 
 ## What it does
 
@@ -42,7 +43,7 @@ Everything your turtles have seen, slice by slice at any Y level, with an ore ov
 
 ### ⛏️ Mining jobs that finish
 
-**Tunnel**, **branch mine**, **grid mine** and **quarry**. Pick a turtle and a depot (a dock next to a chest, plus an optional fuel chest), then press start. When the inventory fills or fuel runs low, the turtle drives home, unloads, refuels and goes back to where it left off. Tick **Place torches** and it lights the tunnels as it goes, with torches it takes from the depot. Progress is drawn on the map as it digs. **Queue** several jobs for a turtle and it works through them one after another on its own.
+**Tunnel**, **branch mine**, **grid mine** and **quarry**. Pick a turtle and a depot (a dock next to a chest, plus an optional fuel chest), then press start. When the inventory fills or fuel runs low, the turtle drives home, unloads, refuels and goes back to where it left off. Tick **Place torches** and it lights the tunnels as it goes, with torches it takes from the depot. Progress is drawn on the map as it digs.
 
 <table>
 <tr>
@@ -57,21 +58,26 @@ Everything your turtles have seen, slice by slice at any Y level, with an ore ov
 
 ### 💎 Ore hunting
 
-Have turtles **scan the walls** as they dig, or map everything within 8–16 blocks at once with an Advanced Peripherals **Geo Scanner**, and **follow ore veins** out of the tunnel and back: Diamond, Coal, "any ore", or any modded ore by id. The **Ores** tab lists every ore seen but not yet mined, grouped into veins, nearest first. Click one and the map jumps there.
+Have turtles **scan the walls** as they dig, and **follow ore veins** out of the tunnel and back: Diamond, Coal, "any ore", or any modded ore by id. With an Advanced Peripherals **Geo Scanner** a turtle maps every block within 8–16 blocks in one go, by hand or every few blocks during a job, so ores deeper in the walls show up too. The **Ores** tab lists every ore seen but not yet mined, grouped into veins, nearest first. Click one and the map jumps there.
 
 ![Ores tab: ores seen but not mined, grouped into veins](docs/screenshots/ores.png)
 
 ### 🐢 A real fleet
 
-- **Campaigns:** one job per turtle, or **one job shared** between them: tunnels and quarries in lanes, grid mines in bands of tunnels, and branch mines with one turtle on the corridor and the branches dealt out.
+- **Sharing one job:** tunnels and quarries split into lanes, grid mines into bands of tunnels, and branch mines with one turtle on the corridor and the branches dealt out (the others wait for the corridor to reach them). Or simply one job per turtle.
 - **Traffic control:** turtles reserve the cells ahead of them, give way early when they meet head-on, and detect deadlocks.
-- **Shared depot:** a queue and waiting spots, so turtles take turns at the chest.
+- **Shared depot:** a queue and waiting spots, so turtles take turns at the chest, and a finished turtle always clears the dock.
 - **Groups**, multi-select and an **emergency stop** for the whole fleet.
-- **Notifications** on Discord or Slack when a job completes, needs attention or loses its turtle.
+
+### ⏭️ Set it and forget it
+
+- **Job queues:** give a turtle its next jobs while it works; each starts by itself when the one before it completes. The fleet list shows how many are waiting, and you can reorder them.
+- **Notifications:** a message on Discord or Slack when a job completes, needs attention (with the reason), or loses its turtle.
+- **Auto-resume** (opt-in per job): if a turtle drops out, its job carries on when it comes back.
 
 ### 🎮 Hands-on control
 
-Drive one turtle or a whole selection at once with **W/A/S/D/R/F**, and dig, inspect, refuel or pick slots from the command bar. **Right-click the map** to send a turtle to a spot, start a job right there, pause, resume or stop a turtle, or copy a JourneyMap / Xaero's Minimap waypoint to paste into Minecraft's chat. Every command shows its result for each turtle.
+Drive one turtle or a whole selection at once with **W/A/S/D/R/F**, and dig, inspect, refuel, pick slots or Geo scan from the command bar. **Right-click the map** to send a turtle to a spot, start a job right there, pause, resume or stop a turtle, or copy a JourneyMap / Xaero's Minimap waypoint to paste into Minecraft's chat. Every command shows its result for each turtle.
 
 ### 🌍 One dashboard, many worlds
 
@@ -117,7 +123,7 @@ Open **http://127.0.0.1:8787**, log in with the password, select turtles and dri
 **Run your first job.** The simulator world comes with a depot site: a chest west of the first turtle and a fuel chest (coal and torches) under it.
 
 1. Select the first turtle → **Depots** → **New depot** → "Use … as the dock", facing **W**, fuel chest **below** → **Save**.
-2. **Jobs** → **New job** → Tunnel, Branch mine or Quarry → "Start in front of the turtle" → **Create & start**.
+2. **Jobs** → **New job** → Tunnel, Branch, Quarry or Grid → "Start in front of the turtle" → **Create & start**. Select several turtles first to give each one a job, or to **Share one**.
 3. Optional: under **Finding ores**, turn on wall scanning and vein following. (The sim world keeps its ores a few blocks below the dirt.)
 
 <details>
@@ -154,7 +160,7 @@ install ABCD-EFGH
 
 **3. Calibrate.** Type the turtle's block coordinates (F3) and the way it faces, e.g. `120 64 -35 n`, or press Enter and calibrate from the dashboard. If you have a GPS network, **GPS fix** finds the position for you.
 
-That's it: the turtle shows up on the map. The agent starts on boot, the turtle keeps its files when picked up (the installer labels it), and running `install` again updates it.
+That's it: the turtle shows up on the map. The agent starts on boot, the turtle keeps its files when picked up (the installer labels it), and running `install` again updates it. Torches need agent 0.3.2 and Geo scanning 0.3.3 or newer; a job that needs a newer agent pauses and tells you to run `install`.
 
 > **Keep the chunks loaded.** Turtles freeze when their chunk unloads. For long jobs, give the turtle an Advanced Peripherals **Chunk Controller** (a "chunky turtle"), or force-load the mining area. See [chunk loading](docs/minecraft-setup.md#4-chunk-loading--read-this).
 
@@ -167,7 +173,7 @@ That's it: the turtle shows up on the map. The agent starts on boot, the turtle 
 | Other versions | Should work: the agent only uses long-standing CC: Tweaked APIs (HTTP WebSockets, the turtle API, JSON), and the map handles build heights from −64 to 320 |
 | Backend | Windows, macOS or Linux with Node.js 22.13+, or Docker |
 
-Advanced Peripherals is optional; it adds the Chunk Controller for chunky turtles.
+Advanced Peripherals is optional; it adds the Chunk Controller (chunky turtles that keep their chunk loaded) and the Geo Scanner. Claim mods like FTB Chunks keep turtles out of claimed chunks unless fake players are allowed (see the FAQ).
 
 ## FAQ
 
@@ -181,6 +187,12 @@ That's CC: Tweaked's HTTP rules. Add the allow rule from [Connect your turtles](
 <summary><b>I updated, but a new feature doesn't work.</b></summary>
 
 The backend only picks up new code when it restarts. After `git pull` (and `npm install` if dependencies changed), run `npm run build`, then stop the backend and run `npm start` again. The dashboard shows a **Restart the backend** banner when it's running older code. Turtles get agent updates when you run `install` on them.
+</details>
+
+<details>
+<summary><b>How do I get a message when a job finishes or gets stuck?</b></summary>
+
+Create a webhook in Discord (channel settings → Integrations → Webhooks) or Slack, put its URL in `.env` as `NOTIFY_WEBHOOK_URL=…`, and restart the backend. The dashboard's Activity tab shows whether notifications are on and can send a test.
 </details>
 
 <details>
@@ -252,15 +264,17 @@ The repository is an npm workspace: `packages/protocol` (shared message types), 
 2. ✅ Real Lua turtles: pairing, telemetry, calibrated position, manual control
 3. ✅ Reliable tunnel jobs with automatic return, unloading and resume
 4. ✅ Multi-turtle scheduling, groups, depot queues and collision handling
-5. ✅ Branch mine, grid mine, quarry, wall scanning, ore veins, ore search and the persistent map; sharing branch and grid mines between turtles (in the simulator so far)
-6. 🟡 3D view ✅; Geo Scanner mapping ✅ in the simulator, to be confirmed in-game ([plan](docs/milestone-6.md))
-7. 🟡 Job queues ✅, notifications ✅, minimap waypoints (JourneyMap / Xaero, via chat) ✅ in the dashboard, to be confirmed in-game
+5. ✅ Branch mine, grid mine, quarry, wall scanning, ore veins, ore search, the persistent map, and sharing any job between turtles
+6. ✅ 3D view (level of detail, overview, progress and routes, follow camera) and Geo Scanner mapping ([plan](docs/milestone-6.md))
+7. ✅ Job queues, notifications, torches, instances, minimap waypoints
 
-Everything marked done has been checked in-game with [the verification checklist](docs/in-game-checklist.md), except the newest work (the 3D view, the right-click menu and instances), which is tested in the simulator so far. Day-by-day notes are in [docs/progress.md](docs/progress.md).
+**Confirmed in-game** with [the verification checklist](docs/in-game-checklist.md): pairing, telemetry, manual control, every job type with unloading and refuelling, chunky turtles, multi-turtle traffic and waiting spots, campaigns in lanes, wall scanning, vein following, the Ores tab, and torches. **Tested in the simulator so far** (waiting for in-game checks): the 3D view upgrades, the right-click menu, instances, Geo scanning, sharing branch and grid mines, job queues, notifications and minimap waypoints. Day-by-day notes are in [docs/progress.md](docs/progress.md).
+
+Ideas for later: an auto-scheduler that hands queued work to idle turtles, statistics over time (blocks and ores per hour, fuel used), and more Advanced Peripherals integrations.
 
 ## Documentation
 
-- [Minecraft setup](docs/minecraft-setup.md): HTTP rules, installing the agent, fuel, chunk loading, GPS
+- [Minecraft setup](docs/minecraft-setup.md): HTTP rules, installing the agent, depots and torches, fuel, chunk loading, Geo Scanner, GPS
 - [In-game verification checklist](docs/in-game-checklist.md)
 - [Architecture and mining strategies](docs/architecture.md)
 - [Wire protocol](docs/protocol.md)
