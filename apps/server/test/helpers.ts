@@ -24,8 +24,9 @@ export function testConfig(dbFile = ':memory:'): Config {
 
 export const TURTLE_DIR = fileURLToPath(new URL('../../../turtle', import.meta.url));
 
-export async function startServer(opts: { dbFile?: string; port?: number } = {}) {
+export async function startServer(opts: { dbFile?: string; port?: number; notifyUrl?: string } = {}) {
   const config = testConfig(opts.dbFile);
+  config.notifyUrl = opts.notifyUrl;
   config.turtleDir = TURTLE_DIR;
   const db = openDb(config.dbFile);
   const { app, fleet, jobs } = await buildApp(config, { db, fleet: FAST, turtleRateLimit: 100_000 }); // simulated ops are ~100x faster than real ones

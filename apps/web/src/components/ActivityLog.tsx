@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { api } from '../lib/api';
 import { useFleet } from '../lib/store';
 import { needsAttention } from './FleetList';
 
@@ -10,6 +11,11 @@ export function ActivityLog() {
   // Events of turtles in other instances are not shown; fleet-wide ones are.
   const events = useMemo(() => allEvents.filter((e) => !e.turtleId || !allTurtles[e.turtleId] || turtles[e.turtleId]), [allEvents, allTurtles, turtles]);
   const focus = useFleet((s) => s.focus);
+  const toast = useFleet((s) => s.toast);
+  const [notify, setNotify] = useState<boolean>();
+  useEffect(() => {
+    api.notifyStatus().then((r) => setNotify(r.enabled), () => {});
+  }, []);
 
   const alerts = useMemo(() => {
     const out: { id: string; text: string; tone: 'red' | 'amber' }[] = [];
@@ -29,6 +35,20 @@ export function ActivityLog() {
 
   return (
     <div className="flex h-full flex-col text-xs">
+      {notify !== undefined && (
+        <div className="shrink-0 border-b border-edge px-2 py-1 text-[11px] text-dim">
+          {notify ? (
+            <>
+              Notifications on: jobs completed, needing attention or losing their turtle.{' '}
+              <button className="text-cyan-300 hover:underline" onClick={() => api.notifyTest().then(() => toast('info', 'Test notification sent'), (e) => toast('error', (e as Error).message))}>
+                Send a test
+              </button>
+            </>
+          ) : (
+            <>Notifications off: set NOTIFY_WEBHOOK_URL in .env (a Discord or Slack webhook) and restart the backend.</>
+          )}
+        </div>
+      )}
       {alerts.length > 0 && (
         <ul className="max-h-[40%] shrink-0 overflow-y-auto border-b border-edge p-1">
           {alerts.map((a, i) => (

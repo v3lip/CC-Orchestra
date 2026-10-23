@@ -1,5 +1,12 @@
 # Progress notes
 
+## Notifications (2026-10-23)
+
+- Set `NOTIFY_WEBHOOK_URL` (a Discord or Slack webhook) and the backend posts a message when a job completes ("✅ [world] Turtle: "Job" completed: N blocks, M ores. Next in the queue: …"), needs attention (the same reason the job card shows), or pauses because its turtle went offline or stopped answering. An operator's own pause sends nothing.
+- One message at a time, at least 1.2 s apart; a burst of more than 20 becomes "…and N more"; a webhook that fails is reported in the activity log once (and when it works again). The Activity tab says whether notifications are on and has **Send a test**.
+- Tests: the notifier (burst collapse, failure reported once, off without a URL); a real job's completion and a missing-chest problem reach a local webhook; the test button.
+
+
 ## Job queues (2026-10-23)
 
 - A turtle can have jobs queued behind its current one: **Queue after the current job** in the job form (for single jobs and campaigns), new job status `queued`. When the current job completes, the next queued job starts by itself, in queue order; **Run next** moves a queued job to the front, **Start now** starts one with nothing ahead of it. After a cancel or a problem the queue waits for you.

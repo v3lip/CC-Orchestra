@@ -67,6 +67,7 @@ Have turtles **scan the walls** as they dig, or map everything within 8–16 blo
 - **Traffic control:** turtles reserve the cells ahead of them, give way early when they meet head-on, and detect deadlocks.
 - **Shared depot:** a queue and waiting spots, so turtles take turns at the chest.
 - **Groups**, multi-select and an **emergency stop** for the whole fleet.
+- **Notifications** on Discord or Slack when a job completes, needs attention or loses its turtle.
 
 ### 🎮 Hands-on control
 
@@ -230,6 +231,7 @@ Data persists in the `fleet-data` volume. The port is bound to `127.0.0.1` only;
 | `DATA_DIR` | `./data` | SQLite database location |
 | `PUBLIC_URL` | `http://127.0.0.1:8787` | address turtles use; shown in pairing instructions |
 | `SECURE_COOKIES` | off | set `1` behind HTTPS |
+| `NOTIFY_WEBHOOK_URL` | — | a Discord or Slack webhook: a message when a job completes, needs attention, or loses its turtle |
 </details>
 
 <details>

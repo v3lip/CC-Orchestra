@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { MAX_MESSAGE_BYTES, StopReason } from '@ccfleet/protocol';
 import { runningCode } from './codeVersion';
+import { Notifier } from './notify';
 import type { Config } from './config';
 import { openDb, type Db } from './db';
 import { ApiError, Fleet, type FleetOptions } from './fleet';
@@ -30,6 +31,8 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
   const db = opts.db ?? openDb(config.dbFile);
   const fleet = new Fleet(db, opts.fleet);
   const jobs = new JobManager(db, fleet);
+  const notifier = new Notifier(config.notifyUrl, (level, msg) => fleet.log(level, msg));
+  jobs.notify = (text) => notifier.send(text);
   const instances = new Instances(db, fleet, jobs);
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 256 * 1024 });
 
@@ -198,6 +201,12 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
     api.post('/api/jobs/:id/pause', async (req) => jobs.pause((req.params as { id: string }).id));
     api.post('/api/jobs/:id/cancel', async (req) => jobs.cancel((req.params as { id: string }).id));
     api.post('/api/jobs/:id/queue-first', async (req) => jobs.queueFirst((req.params as { id: string }).id));
+    api.get('/api/notify', async () => ({ enabled: notifier.enabled }));
+    api.post('/api/notify/test', async () => {
+      if (!notifier.enabled) throw new ApiError(409, 'notifications are off: set NOTIFY_WEBHOOK_URL in .env and restart the backend');
+      notifier.send('🔔 CC Orchestra test notification: notifications work.');
+      return { ok: true };
+    });
     api.get('/api/forced-chunks', async () => jobs.listForced());
     api.post('/api/forced-chunks', async (req) => {
       const b = z.object({ world: z.string().min(1).max(40), dimension: z.string().min(1).max(80), cx: z.number().int(), cz: z.number().int(), forced: z.boolean() }).parse(req.body);

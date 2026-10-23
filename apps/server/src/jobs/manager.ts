@@ -76,6 +76,9 @@ export class JobManager {
   private pendingBroadcast = new Set<string>();
   private timer: NodeJS.Timeout;
 
+  /** Chat notifications (job completed, needs attention, turtle lost); set by the app. */
+  notify?: (text: string) => void;
+
   constructor(
     private db: Db,
     private fleet: Fleet,
@@ -906,6 +909,16 @@ export class JobManager {
     job.view.route = undefined;
     this.save(job);
     this.log('info', `Job "${job.view.name}" completed: ${job.view.progress.cellsCleared} cells, ${job.view.progress.trips} trip(s), ${job.view.progress.itemsUnloaded} items unloaded`, job.view.turtleId);
+    const ores = Object.values(job.view.progress.finds ?? {}).reduce((n, x) => n + x, 0);
+    const next = this.queueOf(job.view.turtleId)[0];
+    this.notify?.(
+      `✅ ${this.where(job)} "${job.view.name}" completed: ${job.view.progress.cellsCleared} blocks${ores ? `, ${ores} ores` : ''}.${next ? ` Next in the queue: "${next.view.name}".` : ''}`,
+    );
+  }
+
+  /** "[world] Turtle" for notifications. */
+  private where(job: JobRec): string {
+    return `[${job.view.world}] ${this.fleet.getTurtle(job.view.turtleId)?.name ?? job.view.turtleId}:`;
   }
 
   /** The runner stopped because of an interruption (pause, stop, offline...). */
@@ -916,6 +929,10 @@ export class JobManager {
     job.view.route = undefined;
     this.save(job);
     this.log('warn', `Job "${job.view.name}" paused: ${job.view.pauseReason}`, job.view.turtleId);
+    // Only what nobody asked for: an operator's own pause needs no message.
+    if (job.view.pauseReason?.startsWith('turtle went offline') || job.view.pauseReason?.startsWith('no answer from the turtle')) {
+      this.notify?.(`📴 ${this.where(job)} "${job.view.name}" paused: ${job.view.pauseReason}.`);
+    }
   }
 
   /** The runner hit a problem the operator must fix. */
@@ -927,6 +944,7 @@ export class JobManager {
     job.view.route = undefined;
     this.save(job);
     this.log('error', `Job "${job.view.name}" paused — ${message}`, job.view.turtleId);
+    this.notify?.(`⚠️ ${this.where(job)} "${job.view.name}" needs attention: ${message}`);
   }
 }
 
