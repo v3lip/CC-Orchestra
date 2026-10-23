@@ -305,6 +305,42 @@ describe('campaigns', () => {
     expect(world.spilled).toBe(0);
   }, 150000);
 
+  it('a finished turtle that cannot get back out still clears the dock', async () => {
+    server = await startServer();
+    const world = openWorld();
+    // Rock with a 1-wide corridor east of the dock (dead end at x=20), one free cell above the dock.
+    fill(world, { x: -3, y: 97, z: -3 }, { x: 24, y: 104, z: 3 }, 'minecraft:stone');
+    fill(world, { x: 0, y: 100, z: 0 }, { x: 19, y: 100, z: 0 }, null);
+    world.set(0, 101, 0, null);
+    world.placeChest({ x: -1, y: 100, z: 0 }, 54);
+    const obs: BlockObservation[] = [];
+    for (let x = -3; x <= 24; x++)
+      for (let y = 97; y <= 104; y++)
+        for (let z = -3; z <= 3; z++) {
+          const bl = world.get(x, y, z);
+          obs.push(bl ? { x, y, z, name: bl.name } : { x, y, z });
+        }
+    server.fleet.importObservations('sim', 'minecraft:overworld', obs, 'test');
+    const depot = server.jobs.saveDepot({ name: 'Home', world: 'sim', dimension: 'minecraft:overworld', dock: { x: 0, y: 100, z: 0 }, dockHeading: 3, unloadDir: 'front', waiting: [] });
+    // A digs one cell at the dead end, comes home and unloads, and would park back out there...
+    const a = await spawnTurtle(server, world, { x: 1, y: 100, z: 0, heading: 1 }, { opMs: 60, fuel: 800 });
+    sims.push(a);
+    const ja = server.jobs.createJob({ name: 'A', depotId: depot.id, turtleId: a.turtleId!, strategy: 'tunnel', params: { origin: { x: 20, y: 100, z: 0 }, heading: 1, width: 1, height: 1, length: 1 }, policy: {} });
+    server.jobs.start(ja.id);
+    // ...but meanwhile a turtle nobody drives has been left in the corridor.
+    await waitFor(() => server!.jobs.getJob(ja.id)?.phase === 'returning' && a.body.pos.x <= 6, 60000, 'A on its way home');
+    const idle = await spawnTurtle(server, world, { x: 10, y: 100, z: 0, heading: 3 }, { opMs: 4 });
+    sims.push(idle);
+    const done = (await finishAll(server, [ja.id], 60000))[0];
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe('completed');
+    // Off the dock (onto the free cell above it), so the next turtle can unload.
+    expect(a.body.pos).toEqual({ x: 0, y: 101, z: 0 });
+    expect(server.jobs.listDepots()[0].lockedBy).toBeUndefined();
+    expect(server.fleet.recentEvents(200).filter((e) => e.message.includes('could not move off the dock'))).toEqual([]);
+  }, 120000);
+
+
   it('without waiting spots, a turtle waits near the dock, not back in its tunnel', async () => {
     const { server, world, depot } = await site();
     // Tunnels start 14 blocks out, reached through open corridors.

@@ -292,6 +292,16 @@ export class JobManager {
     if (this.dockLocks.get(depotId) === turtleId) this.dockRoutes.set(depotId, new Set(cells.map(key)));
   }
 
+  /** Turtles of running jobs on their way to this depot's dock (or queueing for it). */
+  turtlesHeadingFor(depotId: string, except: string): string[] {
+    const out: string[] = [];
+    for (const j of this.jobs.values()) {
+      const v = j.view;
+      if (v.depotId === depotId && v.turtleId !== except && v.status === 'running' && (v.phase === 'returning' || v.phase === 'waiting')) out.push(v.turtleId);
+    }
+    return out;
+  }
+
   dockHolder(depotId: string): string | undefined {
     return this.dockLocks.get(depotId);
   }

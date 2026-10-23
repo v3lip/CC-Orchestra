@@ -1,5 +1,13 @@
 # Progress notes
 
+## A finished turtle no longer gets stuck on the dock (2026-10-23)
+
+- Seen while making the screenshots: a turtle finished its job, unloaded, and stayed on the dock ("could not move off the dock"), so the next turtle paused with "nothing is driving it". It couldn't reach a waiting spot or where its job started: an idle turtle (which counts as a wall) stood on the only known way.
+- Now, when none of those can be reached, it steps off the dock onto the nearest free cell that isn't on the way in (its own or another turtle's coming to the dock), so the next turtle can unload.
+- Also: a turtle waiting for the dock now tells traffic control whom it waits for and which way it will come in. If the dock's holder has to get past it to leave, that's a standoff the existing rules resolve (one of them steps aside), and the one stepping aside keeps off the other's way in.
+- Test: a 1-wide corridor with a dead end, a turtle left idle in it after the other has passed; the finishing turtle ends up on the free cell above the dock and the dock is free. Fails on the previous code.
+
+
 ## New screenshots (2026-10-23)
 
 - All five README screenshots retaken with the current dashboard (CC Orchestra name, instances, torches), from a simulator scene: two quarries split between three turtles (wall scanning, ore veins, torches), two prospecting tunnels, and a shaft down to a branch mine at Y 12 for the rarer ores. Taken with headless Chrome over the DevTools protocol.

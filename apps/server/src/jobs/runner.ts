@@ -570,6 +570,12 @@ export class JobRunner {
         }
       }
       this.setNote(`waiting for the dock (in use by ${holder})${spot ? ` at ${fmt(spot)}` : ''}`);
+      // Tell traffic control whom we wait for and which way we'll come in: if the holder
+      // needs to get past us to leave, that's a standoff it can resolve (one of us steps
+      // aside), and a turtle stepping aside keeps off our way in.
+      const holderId = this.mgr.dockHolder(depot.id);
+      if (holderId) this.traffic.setWaiting(this.v.turtleId, holderId);
+      this.traffic.setRoute(this.v.turtleId, [this.m.pos(), ...(this.m.plan(depot.dock) ?? [])]);
       // Don't block others while we wait.
       const waiter = this.traffic.waitingFor(this.v.turtleId)[0];
       if (waiter) {
@@ -578,6 +584,7 @@ export class JobRunner {
       }
       await sleep(400);
     }
+    this.traffic.setWaiting(this.v.turtleId, undefined);
     this.mgr.releaseSpot(depot.id, this.v.turtleId);
     this.setNote(undefined);
     this.mgr.setPhase(this.job, 'returning');
@@ -602,6 +609,20 @@ export class JobRunner {
     for (const p of [...spots, this.v.segments[0].origin]) {
       try {
         await this.m.moveTo(p);
+        return;
+      } catch (e) {
+        if (!(e instanceof JobError)) throw e;
+      }
+    }
+    // None of them can be reached (a turtle nobody drives in the way?): at least clear the
+    // dock, onto the nearest free cell that isn't on the way in, ours or anyone's.
+    const avoid = new Set([key(depot.dock), ...this.mgr.dockRoute(depot.id)]);
+    for (const id of this.mgr.turtlesHeadingFor(depot.id, this.v.turtleId)) for (const c of this.traffic.routeCells(id)) avoid.add(c);
+    const aside = this.m.nearestFreeCell(avoid);
+    if (aside) {
+      try {
+        await this.m.moveTo(aside);
+        this.mgr.log('info', `${this.v.name}: couldn't get back out, so it waits next to the dock at ${fmt(aside)}`, this.v.turtleId);
         return;
       } catch (e) {
         if (!(e instanceof JobError)) throw e;

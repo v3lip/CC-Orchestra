@@ -414,10 +414,18 @@ export class Mover {
 
   /** Nearest known-free cell (no digging) that is not on `other`'s route. */
   private findYieldCell(other: string): Vec3 | undefined {
-    const here = this.pos();
     const avoid = this.o.traffic.routeCells(other);
     const op = this.o.fleet.turtleState(other)?.state?.pose.pos;
     if (op) avoid.add(key(op));
+    return this.nearestFreeCell(avoid);
+  }
+
+  /**
+   * Nearest cell the turtle can reach without digging, through known-free cells, that
+   * isn't in `avoid` (and isn't taken by another turtle or a depot chest).
+   */
+  nearestFreeCell(avoid: Set<string>): Vec3 | undefined {
+    const here = this.pos();
     const blocked = new Set<string>();
     for (const p of this.o.fleet.turtlePositions(this.o.world, this.o.dimension, this.o.turtleId)) blocked.add(key(p));
     for (const p of this.o.traffic.reservedBy(this.o.turtleId, this.o.world, this.o.dimension)) blocked.add(key(p));
