@@ -70,7 +70,7 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 ### Job queues
 
-49. [ ] Give a working turtle a second job: select it → Jobs → + New job → tick **Queue after the current job** → Create & start. The new card says "queued · 1st in …'s queue, after …". When the first job completes, the queued one starts by itself (the turtle drives to its start).
+49. [ ] Give a working turtle a second and third job: select it → Jobs → + New job → tick **Queue after the current job** → Create & start (twice). The fleet list shows **+2** next to it, its details a **Queue** row ("2 jobs · next: …"), the cards "1st/2nd in …'s queue", and on the map the queued areas are violet and dashed (running cyan, waiting grey; also in 3D). **↑ / ↓ / Run next** reorder them. When the first job completes, the next one starts by itself.
 
 ### Minimap waypoints
 

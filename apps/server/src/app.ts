@@ -201,6 +201,11 @@ export async function buildApp(config: Config, opts: { fleet?: FleetOptions; db?
     api.post('/api/jobs/:id/pause', async (req) => jobs.pause((req.params as { id: string }).id));
     api.post('/api/jobs/:id/cancel', async (req) => jobs.cancel((req.params as { id: string }).id));
     api.post('/api/jobs/:id/queue-first', async (req) => jobs.queueFirst((req.params as { id: string }).id));
+    api.post('/api/jobs/:id/queue-move', async (req) => {
+      const by = (req.body as { by?: unknown } | undefined)?.by;
+      if (by !== -1 && by !== 1) throw new ApiError(400, 'by must be -1 or 1');
+      return jobs.queueMove((req.params as { id: string }).id, by);
+    });
     api.get('/api/notify', async () => ({ enabled: notifier.enabled }));
     api.post('/api/notify/test', async () => {
       if (!notifier.enabled) throw new ApiError(409, 'notifications are off: set NOTIFY_WEBHOOK_URL in .env and restart the backend');

@@ -157,6 +157,16 @@ export function DetailsPanel() {
             )
           }
         />
+        {t.queue && (
+          <Row
+            k="Queue"
+            v={
+              <button className="text-violet-300 hover:underline" onClick={() => useFleet.getState().setRightTab('jobs')}>
+                {t.queue.count} job{t.queue.count === 1 ? '' : 's'} · next: {t.queue.next.name}
+              </button>
+            }
+          />
+        )}
         {st?.lastError && (
           <div className="mt-1 rounded border border-red-900/60 bg-red-950/30 p-1.5 text-red-200">
             Last error <span className="num">[{st.lastError.code}]</span> {st.lastError.message}

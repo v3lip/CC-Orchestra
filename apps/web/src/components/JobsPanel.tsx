@@ -98,6 +98,7 @@ function CampaignCard({ id, jobs }: { id: string; jobs: JobView[] }) {
         {count('running') > 0 && <span className="text-emerald-300">{count('running')} running</span>}
         {count('pausing') + count('paused') > 0 && <span className="text-amber-300">{count('pausing') + count('paused')} paused</span>}
         {count('ready') > 0 && <span>{count('ready')} ready</span>}
+        {count('queued') > 0 && <span className="text-violet-300">{count('queued')} queued</span>}
         {count('completed') > 0 && <span className="text-sky-300">{count('completed')} done</span>}
         {attention > 0 && <span className="text-red-300">{attention} need attention</span>}
         <span>{jobs.reduce((n, j) => n + j.progress.cellsCleared, 0)} cells</span>
@@ -106,7 +107,7 @@ function CampaignCard({ id, jobs }: { id: string; jobs: JobView[] }) {
       {!finished && (
         <div className="mt-1.5 flex gap-2">
           <Btn tone="go" onClick={() => act(api.campaignAction(id, 'start').then((r) => results(r, 'Started')))}>
-            {count('ready') === jobs.length ? 'Start all' : 'Resume all'}
+            {count('ready') + count('queued') === jobs.length ? 'Start all' : 'Resume all'}
           </Btn>
           <Btn onClick={() => act(api.campaignAction(id, 'pause').then((r) => results(r, 'Pausing')))}>Pause all</Btn>
           <Btn onClick={() => confirm('Cancel every job in this campaign?') && act(api.campaignAction(id, 'cancel').then((r) => results(r, 'Cancelled')))}>Cancel all</Btn>
@@ -126,11 +127,11 @@ function CampaignCard({ id, jobs }: { id: string; jobs: JobView[] }) {
 }
 
 /** Where a queued job stands: its place in its turtle's queue and the job ahead of it all. */
-function queueInfo(job: JobView, jobs: Record<string, JobView>): { place: number; current?: JobView } {
+function queueInfo(job: JobView, jobs: Record<string, JobView>): { place: number; count: number; current?: JobView } {
   const mine = Object.values(jobs).filter((j) => j.turtleId === job.turtleId);
   const queue = mine.filter((j) => j.status === 'queued').sort((a, b) => (a.queueOrder ?? 0) - (b.queueOrder ?? 0));
   const current = mine.find((j) => j.status === 'ready' || j.status === 'running' || j.status === 'pausing' || j.status === 'paused');
-  return { place: queue.findIndex((j) => j.id === job.id) + 1, current };
+  return { place: queue.findIndex((j) => j.id === job.id) + 1, count: queue.length, current };
 }
 
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`;
@@ -209,6 +210,16 @@ function JobCard({ job }: { job: JobView }) {
       )}
       <div className="mt-1.5 flex gap-2">
         {queued && queued.place > 1 && <Btn onClick={() => act(api.queueFirst(job.id))}>Run next</Btn>}
+        {queued && queued.place > 1 && (
+          <Btn onClick={() => act(api.queueMove(job.id, -1))} title="One place earlier">
+            ↑
+          </Btn>
+        )}
+        {queued && queued.place < queued.count && (
+          <Btn onClick={() => act(api.queueMove(job.id, 1))} title="One place later">
+            ↓
+          </Btn>
+        )}
         {queued && !queued.current && (
           <Btn tone="go" onClick={() => act(api.startJob(job.id))}>
             Start now

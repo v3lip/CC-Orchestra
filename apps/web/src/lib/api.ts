@@ -62,6 +62,7 @@ export const api = {
   pauseJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/pause`, {}),
   cancelJob: (id: string) => req<JobView>('POST', `/api/jobs/${id}/cancel`, {}),
   queueFirst: (id: string) => req<JobView>('POST', `/api/jobs/${id}/queue-first`, {}),
+  queueMove: (id: string, by: -1 | 1) => req<JobView>('POST', `/api/jobs/${id}/queue-move`, { by }),
   notifyStatus: () => req<{ enabled: boolean }>('GET', '/api/notify'),
   notifyTest: () => req<{ ok: boolean }>('POST', '/api/notify/test', {}),
   deleteJob: (id: string) => req<{ ok: true }>('DELETE', `/api/jobs/${id}`),

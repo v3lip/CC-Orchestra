@@ -473,6 +473,8 @@ export interface TurtleView {
   pendingStop: boolean;
   /** The job controlling this turtle, if any. */
   job?: { id: string; name: string; status: JobStatus; phase: JobPhase };
+  /** Jobs queued behind the current one: how many, and the next. */
+  queue?: { count: number; next: { id: string; name: string } };
   /** A one-off task such as "go to", if any. */
   /** A go-to in progress, with its planned route (next cells, for the map). */
   task?: { kind: 'goto'; target: Vec3; note?: string; route?: Vec3[] };

@@ -115,6 +115,10 @@ export class JobManager {
       const j = this.activeJobFor(id);
       return j && { id: j.view.id, name: j.view.name, status: j.view.status, phase: j.view.phase };
     };
+    fleet.hooks.queueOf = (id) => {
+      const q = this.queueOf(id);
+      return q.length ? { count: q.length, next: { id: q[0].view.id, name: q[0].view.name } } : undefined;
+    };
     fleet.hooks.extraInit = () => ({ jobs: this.listJobs(), depots: this.listDepots(), forcedChunks: this.listForced() });
     this.timer = setInterval(() => this.flush(), 200);
   }
@@ -533,6 +537,20 @@ export class JobManager {
     return Math.max(0, ...this.queueOf(turtleId).map((j) => j.view.queueOrder ?? 0)) + 1;
   }
 
+  /** Move a queued job one place earlier (-1) or later (+1) in its turtle's queue. */
+  queueMove(id: string, by: -1 | 1): JobView {
+    const job = this.mustGet(id);
+    if (job.view.status !== 'queued') throw new ApiError(409, `job is ${job.view.status}, not queued`);
+    const q = this.queueOf(job.view.turtleId);
+    const i = q.findIndex((j) => j.view.id === id);
+    const other = q[i + by];
+    if (!other) return job.view;
+    [job.view.queueOrder, other.view.queueOrder] = [other.view.queueOrder, job.view.queueOrder];
+    this.save(job);
+    this.save(other);
+    return job.view;
+  }
+
   /** Put a queued job first in its turtle's queue. */
   queueFirst(id: string): JobView {
     const job = this.mustGet(id);
@@ -775,13 +793,14 @@ export class JobManager {
       const j = this.jobs.get(id)!;
       try {
         if (action === 'start') {
-          if (j.view.status !== 'ready' && j.view.status !== 'paused') return { jobId: id, ok: false, error: `job is ${j.view.status}` };
+          if (j.view.status !== 'ready' && j.view.status !== 'paused' && j.view.status !== 'queued') return { jobId: id, ok: false, error: `job is ${j.view.status}` };
           this.start(id);
         } else if (action === 'pause') {
+          if (j.view.status === 'queued') return { jobId: id, ok: true }; // not started yet: nothing to pause
           if (j.view.status !== 'running') return { jobId: id, ok: false, error: `job is ${j.view.status}` };
           this.pause(id);
         } else {
-          if (!ACTIVE.has(j.view.status)) return { jobId: id, ok: false, error: `job is ${j.view.status}` };
+          if (!UNFINISHED.has(j.view.status)) return { jobId: id, ok: false, error: `job is ${j.view.status}` };
           this.cancel(id);
         }
         return { jobId: id, ok: true };

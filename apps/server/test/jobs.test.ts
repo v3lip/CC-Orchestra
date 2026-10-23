@@ -230,6 +230,33 @@ describe('tunnel job (TS agent)', () => {
     for (const z of [0, 3, -3]) for (let x = 2; x <= 4; x++) expect(world.get(x, 100, z), `${x} 100 ${z}`).toBeNull();
   }, 120000);
 
+  it("the turtle shows its queue; jobs move up and down; campaign actions handle queued jobs", async () => {
+    const { server, world, depot } = await setup();
+    const t = await sim(server, world, { fuel: 2000 });
+    const id = t.turtleId!;
+    const at = (z: number) => ({ origin: { x: 2, y: 100, z }, heading: 1 as const, width: 1, height: 2, length: 3 });
+    const current = server.jobs.createJob(tunnel(id, depot.id, { length: 3 }));
+    const a = server.jobs.createJob({ ...tunnel(id, depot.id), name: 'A', params: at(3), queue: true });
+    const b = server.jobs.createJob({ ...tunnel(id, depot.id), name: 'B', params: at(-3), queue: true });
+    await waitFor(() => server.fleet.getTurtle(id)?.queue?.count === 2, 3000, 'queue on the turtle');
+    expect(server.fleet.getTurtle(id)?.queue?.next).toEqual({ id: a.id, name: 'A' });
+    server.jobs.queueMove(b.id, -1);
+    expect(server.jobs.queueOf(id).map((j) => j.view.name)).toEqual(['B', 'A']);
+    server.jobs.queueMove(b.id, -1); // already first: stays
+    server.jobs.queueMove(b.id, 1);
+    expect(server.jobs.queueOf(id).map((j) => j.view.name)).toEqual(['A', 'B']);
+    // A campaign queued behind the current job: Start all leaves it waiting, Pause all
+    // passes over it, Cancel all cancels it.
+    const c = server.jobs.createCampaign({ name: 'Later', depotId: depot.id, queue: true, jobs: [{ turtleId: id, strategy: 'tunnel', params: at(6) }] });
+    expect(c.jobs[0].status).toBe('queued');
+    expect(server.jobs.campaignAction(c.campaignId, 'start')).toEqual([{ jobId: c.jobs[0].id, ok: true }]);
+    expect(server.jobs.getJob(c.jobs[0].id)?.status).toBe('queued');
+    expect(server.jobs.campaignAction(c.campaignId, 'pause')).toEqual([{ jobId: c.jobs[0].id, ok: true }]);
+    expect(server.jobs.campaignAction(c.campaignId, 'cancel')).toEqual([{ jobId: c.jobs[0].id, ok: true }]);
+    expect(server.jobs.getJob(c.jobs[0].id)?.status).toBe('cancelled');
+    expect(server.jobs.getJob(current.id)?.status).toBe('ready');
+  });
+
   it('a cancelled job does not start the queue; the next one waits for the operator', async () => {
     const { server, world, depot } = await setup();
     const t = await sim(server, world, { fuel: 2000 });

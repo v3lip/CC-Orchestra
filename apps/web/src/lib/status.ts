@@ -97,6 +97,13 @@ export function blockColor(name: string): string {
   return `hsl(${Math.abs(h) % 360} 35% 42%)`;
 }
 
+/** How a job's area is drawn on the maps: running, waiting to run (ready/paused), or queued. */
+export type JobTone = 'running' | 'waiting' | 'queued';
+export const JOB_TONE_COLOR: Record<JobTone | 'draft', string> = { running: '#22d3ee', waiting: '#94a3b8', queued: '#a78bfa', draft: '#e879f9' };
+export function jobTone(status: string): JobTone {
+  return status === 'running' || status === 'pausing' ? 'running' : status === 'queued' ? 'queued' : 'waiting';
+}
+
 /** Has an Advanced Peripherals Geo Scanner equipped. */
 export function hasScanner(t: TurtleView | undefined): boolean {
   return hasGeoScanner(t?.state?.upgrades);

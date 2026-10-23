@@ -1,5 +1,13 @@
 # Progress notes
 
+## Finishing the 3D view and job queues (2026-10-24)
+
+- **Maps:** job areas are drawn by state everywhere: running cyan, waiting (ready or paused) grey, queued violet and dashed. Before, every job was the same cyan in 2D and queued ones looked like any other in 3D and the overview inset. The 2D legend lists the three. Routes are drawn for running jobs only.
+- **Queue visible where the turtle is:** the fleet list shows **+N** for queued jobs, the turtle's details a **Queue** row (how many, which is next; click → Jobs). Queued cards get **↑ / ↓** besides **Run next**.
+- **Campaign actions and queues:** **Start all** on a campaign with queued jobs leaves them queued (it used to refuse them), **Pause all** passes over them (it reported them as errors), **Cancel all** cancels them (it used to leave them in the queue). Campaign cards count queued jobs.
+- Tests: queue summary on the turtle, moving up/down (and past the ends), the three campaign actions on a queued campaign. Browser check (1600×1000, a running job and two queued): +2 in the fleet list, the Queue row, cyan vs violet dashed areas in 2D with the legend, cyan vs faint violet boxes in 3D.
+
+
 ## Minimap waypoints (2026-10-23)
 
 - Right-click the map → **Copy as JourneyMap waypoint** / **Copy as Xaero's waypoint**, and the same on each depot card: chat text that the minimap mod turns into a clickable "add waypoint" link (`[name:"…", x:…, y:…, z:…, dim:…]` for JourneyMap, `xaero-waypoint:name:initials:x:y:z:colour:false:0:Internal-<dimension>-waypoints` for Xaero). Chat rather than the mods' waypoint files, whose format and folders differ between versions. Named after the block (e.g. an ore) or turtle under the cursor.

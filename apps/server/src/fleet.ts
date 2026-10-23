@@ -130,6 +130,8 @@ export interface FleetHooks {
   removed?(turtleId: string): void;
   /** Job summary for a turtle's view. */
   jobOf?(turtleId: string): TurtleView['job'];
+  /** Queued jobs for a turtle's view. */
+  queueOf?(turtleId: string): TurtleView['queue'];
   /** One-off task (e.g. go-to) for a turtle's view. */
   taskOf?(turtleId: string): TurtleView['task'];
   extraInit?(): { jobs: JobView[]; depots: DepotView[]; forcedChunks: ForcedChunk[] };
@@ -360,6 +362,7 @@ export class Fleet {
   view(rec: TurtleRec): TurtleView {
     const connection = this.connection(rec);
     const job = this.hooks.jobOf?.(rec.id);
+    const queue = this.hooks.queueOf?.(rec.id);
     const task = this.hooks.taskOf?.(rec.id);
     let status: DisplayStatus = connection === 'online' ? (rec.state?.activity ?? 'idle') : connection;
     if (connection === 'online' && !rec.state?.hold && job?.status === 'running') {
@@ -382,6 +385,7 @@ export class Fleet {
       queueLength: rec.queue.length + (rec.inflight ? 1 : 0),
       pendingStop: !!rec.pendingStop,
       job,
+      queue,
       task,
       lastSeen: rec.lastSeen,
       groupIds: [...this.groups.values()].filter((g) => g.memberIds.includes(rec.id)).map((g) => g.id),

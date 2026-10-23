@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MapBlock, TunnelParams, Vec3 } from '@ccfleet/protocol';
 import { HEADING_VECTORS, sectionBox } from '@ccfleet/protocol';
 import { mapCache, useFleet } from '../lib/store';
-import { STATUS_COLOR, blockColor, shortItem, statusOf } from '../lib/status';
+import { JOB_TONE_COLOR, STATUS_COLOR, blockColor, jobTone, shortItem, statusOf } from '../lib/status';
 import { type Visible, cellsIn, classify, surface } from '../lib/visible3d';
 import { MAX_INSTANCES, chunkOrder, chunkWork, lodFull } from '../lib/chunks';
 import { type Frame, fromInset, overviewFrame, toInset } from '../lib/overview';
@@ -472,11 +472,12 @@ export default function MapView3D() {
     // Job areas (running brighter) and the draft being set up in the job form.
     for (const j of Object.values(jobs)) {
       if (j.world !== world || j.dimension !== dimension || j.status === 'completed' || j.status === 'cancelled') continue;
-      const running = j.status === 'running' || j.status === 'pausing';
+      const tone = jobTone(j.status);
+      const running = tone === 'running';
       const segs = (j.segments ?? []).map(sectionBox);
       // A quarry's layers stack into one box: draw its outline once.
       const parts = j.strategy === 'quarry' && segs.length ? [segs.reduce((a, b) => ({ min: { x: Math.min(a.min.x, b.min.x), y: Math.min(a.min.y, b.min.y), z: Math.min(a.min.z, b.min.z) }, max: { x: Math.max(a.max.x, b.max.x), y: Math.max(a.max.y, b.max.y), z: Math.max(a.max.z, b.max.z) } }))] : segs;
-      for (const b of parts) box(b, running ? '#22d3ee' : '#64748b', running ? 0.9 : 0.5);
+      for (const b of parts) box(b, tone === 'waiting' ? '#64748b' : JOB_TONE_COLOR[tone], running ? 0.9 : tone === 'queued' ? 0.45 : 0.5);
       // What's dug so far, filled in.
       for (const { seg, done } of sectionProgress(j.segments ?? [], j.progress.unitsDone)) {
         const dug = splitSection(seg, done).dug;
@@ -604,7 +605,8 @@ export default function MapView3D() {
     // Job areas.
     for (const j of Object.values(jobs)) {
       if (j.world !== world || j.dimension !== dimension || j.status === 'completed' || j.status === 'cancelled') continue;
-      ctx.strokeStyle = j.status === 'running' || j.status === 'pausing' ? 'rgba(34, 211, 238, 0.8)' : 'rgba(100, 116, 139, 0.8)';
+      const tone = jobTone(j.status);
+      ctx.strokeStyle = tone === 'running' ? 'rgba(34, 211, 238, 0.8)' : tone === 'queued' ? 'rgba(167, 139, 250, 0.7)' : 'rgba(100, 116, 139, 0.8)';
       ctx.lineWidth = 1;
       for (const seg of j.segments ?? []) {
         const b = sectionBox(seg);

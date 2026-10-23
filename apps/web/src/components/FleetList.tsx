@@ -213,6 +213,11 @@ export function FleetList({ onEnroll }: { onEnroll: () => void }) {
                   </span>
                 )}
                 {needsAttention(t) && <span className="text-amber-400" title="Needs attention">!</span>}
+                {t.queue && (
+                  <span className="rounded bg-violet-900/60 px-1 text-[9px] font-bold text-violet-200" title={`${t.queue.count} job(s) queued; next: "${t.queue.next.name}"`}>
+                    +{t.queue.count}
+                  </span>
+                )}
                 <span className="ml-auto shrink-0 text-dim">{STATUS_LABEL[status]}</span>
               </div>
               <div className="mt-0.5 flex items-center gap-2 pl-6 text-[10px] text-dim">

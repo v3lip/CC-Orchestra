@@ -3,7 +3,7 @@ import type { DepotView, JobView, TunnelParams, TurtleView } from '@ccfleet/prot
 import { HEADING_VECTORS } from '@ccfleet/protocol';
 import { mapCache, useFleet } from '../lib/store';
 import { api } from '../lib/api';
-import { STATUS_COLOR, blockColor, isChunky, shortItem, statusOf } from '../lib/status';
+import { JOB_TONE_COLOR, type JobTone, STATUS_COLOR, blockColor, isChunky, jobTone, shortItem, statusOf } from '../lib/status';
 import { isOreBlock } from '@ccfleet/protocol';
 import { routeAhead } from '../lib/progress';
 
@@ -157,11 +157,12 @@ export function MapView() {
       if (j.world !== world || j.dimension !== dimension || j.status === 'completed' || j.status === 'cancelled') continue;
       // Each section with its own share of the finished slices.
       let done = j.progress.unitsDone;
+      const tone = jobTone(j.status);
       for (const seg of j.segments ?? []) {
-        drawTunnel(ctx, seg, toSx, toSy, s, y, Math.max(0, Math.min(seg.length, done)), false);
+        drawTunnel(ctx, seg, toSx, toSy, s, y, Math.max(0, Math.min(seg.length, done)), tone);
         done -= seg.length;
       }
-      drawRoute(ctx, routeAhead(j.route, turtles[j.turtleId]?.state?.pose.pos), toSx, toSy, '#a3e635');
+      if (tone === 'running') drawRoute(ctx, routeAhead(j.route, turtles[j.turtleId]?.state?.pose.pos), toSx, toSy, '#a3e635');
     }
     // Go-to trips: the route still ahead and the target.
     for (const t of visibleTurtles) {
@@ -174,7 +175,7 @@ export function MapView() {
       ctx.strokeRect(toSx(g.x) + 1, toSy(g.z) + 1, s - 2, s - 2);
       ctx.restore();
     }
-    for (const d of jobDraft ?? []) drawTunnel(ctx, d, toSx, toSy, s, y, 0, true);
+    for (const d of jobDraft ?? []) drawTunnel(ctx, d, toSx, toSy, s, y, 0, 'draft');
 
     // Turtles.
     const sel = new Set(selection);
@@ -464,6 +465,15 @@ function Legend() {
         <i className="inline-block h-2.5 w-2.5 border border-dashed border-gray-400" /> offline (still an obstacle)
       </span>
       <span className="flex items-center gap-1 text-amber-300">? uncertain pose</span>
+      <span className="flex items-center gap-1">
+        jobs:
+        {(['running', 'waiting', 'queued'] as const).map((t) => (
+          <span key={t} className="flex items-center gap-0.5">
+            <i className={`inline-block h-2.5 w-2.5 border ${t === 'queued' ? 'border-dashed' : ''}`} style={{ borderColor: JOB_TONE_COLOR[t] }} />
+            {t}
+          </span>
+        ))}
+      </span>
     </div>
   );
 }
@@ -475,7 +485,7 @@ function tunnelCorner(p: TunnelParams, d: number, w: number) {
 }
 
 /** Outline of a tunnel at this Y level; finished slices shaded; drafts dashed. */
-function drawTunnel(ctx: CanvasRenderingContext2D, p: TunnelParams, toSx: (x: number) => number, toSy: (z: number) => number, s: number, y: number, done: number, draft: boolean) {
+function drawTunnel(ctx: CanvasRenderingContext2D, p: TunnelParams, toSx: (x: number) => number, toSy: (z: number) => number, s: number, y: number, done: number, tone: JobTone | 'draft') {
   const onLevel = y >= p.origin.y && y < p.origin.y + p.height;
   const rect = (d0: number, d1: number) => {
     const a = tunnelCorner(p, d0, 0);
@@ -489,10 +499,10 @@ function drawTunnel(ctx: CanvasRenderingContext2D, p: TunnelParams, toSx: (x: nu
     ctx.fillStyle = 'rgba(34,211,238,0.10)';
     ctx.fillRect(...rect(0, done - 1));
   }
-  ctx.strokeStyle = draft ? '#e879f9' : '#22d3ee';
-  ctx.globalAlpha = onLevel ? 0.9 : 0.3;
+  ctx.strokeStyle = JOB_TONE_COLOR[tone];
+  ctx.globalAlpha = (onLevel ? 0.9 : 0.3) * (tone === 'queued' ? 0.8 : 1);
   ctx.lineWidth = 1.5;
-  ctx.setLineDash(draft ? [6, 4] : onLevel ? [] : [2, 4]);
+  ctx.setLineDash(tone === 'draft' ? [6, 4] : tone === 'queued' ? [3, 3] : onLevel ? [] : [2, 4]);
   const [rx, ry, rw, rh] = rect(0, p.length - 1);
   ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
   // Arrow at the entrance showing the digging direction.
