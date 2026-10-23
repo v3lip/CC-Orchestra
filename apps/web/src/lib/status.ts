@@ -76,6 +76,8 @@ const BLOCK_COLORS: Record<string, string> = {
   'minecraft:lapis_ore': '#2a52be',
   'minecraft:emerald_ore': '#27ae60',
   'minecraft:chest': '#a16207',
+  'minecraft:torch': '#fbbf24',
+  'minecraft:wall_torch': '#fbbf24',
   'computercraft:turtle_normal': '#94a3b8',
   'computercraft:turtle_advanced': '#eab308',
 };

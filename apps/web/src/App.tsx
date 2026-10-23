@@ -111,7 +111,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     <div className="flex h-full flex-col">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-edge bg-panel px-3">
         <span className="font-bold tracking-wider">
-          CC<span className="text-accent">ORCHESTRA</span>
+          CC<span className="ml-1 text-accent">ORCHESTRA</span>
         </span>
         <LiveBadge live={live} />
         <span className="num text-xs text-dim">

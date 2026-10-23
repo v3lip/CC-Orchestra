@@ -83,6 +83,9 @@ interface Materials {
 }
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
+/** A torch is a thin stick standing in its cell, not a block. */
+const TORCH = new THREE.BoxGeometry(0.16, 0.62, 0.16).translate(0, -0.19, 0);
+const isTorch = (b: MapBlock) => !!b.block?.endsWith('torch');
 const WHITE = new THREE.Color('#ffffff');
 
 function makeMaterials(xray: boolean): Materials {
@@ -103,9 +106,9 @@ function disposeMaterials(m: Materials): void {
 function buildChunkMesh(v: Visible, mats: Materials, version: number, surface = false, capped = false): ChunkMesh {
   const group = new THREE.Group();
   const pickable: ChunkMesh['pickable'] = [];
-  const add = (cells: MapBlock[], material: THREE.Material, size = 1, tint?: (c: THREE.Color) => THREE.Color) => {
+  const add = (cells: MapBlock[], material: THREE.Material, size = 1, tint?: (c: THREE.Color) => THREE.Color, geometry: THREE.BufferGeometry = BOX) => {
     if (!cells.length) return;
-    const mesh = new THREE.InstancedMesh(BOX, material, cells.length);
+    const mesh = new THREE.InstancedMesh(geometry, material, cells.length);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const sc = new THREE.Vector3(size, size, size);
@@ -119,8 +122,11 @@ function buildChunkMesh(v: Visible, mats: Materials, version: number, surface = 
     group.add(mesh);
     pickable.push({ mesh, cells });
   };
-  add(v.solids, mats.solid);
+  const torches = v.solids.filter(isTorch);
+  add(torches.length ? v.solids.filter((b) => !isTorch(b)) : v.solids, mats.solid);
   add(v.fluids, mats.fluid);
+  // Torches glow (unlit material), also through x-ray.
+  add(torches, mats.ore, 1, undefined, TORCH);
   // Ores unlit in their own colour (lightened so dark ones like coal still show), outlined.
   add(v.ores, mats.ore, mats.xray ? 0.8 : 1.002, (c) => c.lerp(WHITE, 0.25));
   if (v.ores.length) {

@@ -47,7 +47,8 @@ const freshWorld = !existsSync(worldFile);
 const world = freshWorld ? new SimWorld(Number(values.seed)) : SimWorld.fromJSON(JSON.parse(readFileSync(worldFile, 'utf8')));
 
 // A fresh world gets a ready-made depot next to the first turtle's start (x=0, z=0):
-// an unload chest to its west and a fuel chest with coal under it.
+// an unload chest to its west and a fuel chest with coal (and torches, for jobs that
+// place them) under it.
 const depotHint = (() => {
   const y = world.surfaceY(0, 0) + 1;
   if (freshWorld) {
@@ -56,6 +57,7 @@ const depotHint = (() => {
     world.placeChest({ x: 0, y: y - 1, z: 0 });
     world.inventories.get(`0,${y - 1},0`)![0] = { name: 'minecraft:coal', count: 64 };
     world.inventories.get(`0,${y - 1},0`)![1] = { name: 'minecraft:coal', count: 64 };
+    world.inventories.get(`0,${y - 1},0`)![2] = { name: 'minecraft:torch', count: 64 };
   }
   return `dock 0 ${y} 0 facing west, unload chest in front, fuel chest below`;
 })();

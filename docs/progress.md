@@ -1,5 +1,11 @@
 # Progress notes
 
+## New screenshots (2026-10-23)
+
+- All five README screenshots retaken with the current dashboard (CC Orchestra name, instances, torches), from a simulator scene: two quarries split between three turtles (wall scanning, ore veins, torches), two prospecting tunnels, and a shaft down to a branch mine at Y 12 for the rarer ores. Taken with headless Chrome over the DevTools protocol.
+- Small fixes found while doing it: the logo read "CCORCHESTRA" (now a gap between CC and ORCHESTRA); torches were drawn as full blocks in 3D (now a thin glowing stick) and in a random colour on the map (now yellow). The simulator's depot fuel chest now also holds a stack of torches.
+
+
 ## Renamed to CC Orchestra (2026-10-23)
 
 - The project is now **CC Orchestra** (repository https://github.com/v3lip/CC-Orchestra): dashboard title and logo, turtle screen and installer messages, docs, README, log prefix, package and Docker service names.

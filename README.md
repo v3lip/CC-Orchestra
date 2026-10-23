@@ -12,7 +12,7 @@ Pair your turtles once, then run them from your browser: a live map of everythin
 ![Self-hosted](https://img.shields.io/badge/self--hosted-no%20cloud-0e7490)
 [![MIT license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-![The CC Orchestra dashboard: three turtles sharing a quarry, with ore finds and the ore overlay](docs/screenshots/overview.png)
+![The CC Orchestra dashboard: three turtles working a quarry next to the one they just finished, with ores marked on the map](docs/screenshots/overview.png)
 
 [Try it without Minecraft](#try-it-in-two-minutes-no-minecraft-needed) · [Connect real turtles](#connect-your-turtles) · [Features](#what-it-does) · [FAQ](#faq)
 
@@ -38,7 +38,7 @@ CC Orchestra takes a different approach: **the brain lives on your PC, not on th
 
 Everything your turtles have seen, slice by slice at any Y level, with an ore overlay and a chunk overlay showing which chunks are kept loaded. Switch to **3D** to orbit around your tunnels, x-ray the stone to see the ores in the walls, cut away everything above a Y level to look into a tunnel, or have the camera follow a turtle as it works.
 
-![3D view: a quarry dug by three turtles, its scanned walls and the ores in them](docs/screenshots/3d.png)
+![3D view cut at the quarry floors: two quarries dug by three turtles, lit with torches](docs/screenshots/3d.png)
 
 ### ⛏️ Mining jobs that finish
 
@@ -46,11 +46,11 @@ Everything your turtles have seen, slice by slice at any Y level, with an ore ov
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/job-form.png" alt="New job form: a quarry with ore filters"></td>
+<td width="50%"><img src="docs/screenshots/job-form.png" alt="New job form: a quarry with ore filters and torches"></td>
 <td width="50%"><img src="docs/screenshots/turtle-details.png" alt="Turtle details: position, fuel, inventory and upgrades"></td>
 </tr>
 <tr>
-<td><sub>New job: a quarry with ore filters</sub></td>
+<td><sub>New job: a quarry with ore filters and torches</sub></td>
 <td><sub>Turtle details: position, fuel, inventory, upgrades</sub></td>
 </tr>
 </table>
@@ -113,7 +113,7 @@ npm run sim -- --count 6
 
 Open **http://127.0.0.1:8787**, log in with the password, select turtles and drive them with **W/S/A/D** (move and turn) and **R/F** (up and down).
 
-**Run your first job.** The simulator world comes with a depot site: a chest west of the first turtle and a fuel chest under it.
+**Run your first job.** The simulator world comes with a depot site: a chest west of the first turtle and a fuel chest (coal and torches) under it.
 
 1. Select the first turtle → **Depots** → **New depot** → "Use … as the dock", facing **W**, fuel chest **below** → **Save**.
 2. **Jobs** → **New job** → Tunnel, Branch mine or Quarry → "Start in front of the turtle" → **Create & start**.
