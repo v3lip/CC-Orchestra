@@ -72,6 +72,10 @@ The automated tests run the real Lua agent in a CC-like host (Lua 5.4 under Node
 
 49. [ ] Give a working turtle a second job: select it → Jobs → + New job → tick **Queue after the current job** → Create & start. The new card says "queued · 1st in …'s queue, after …". When the first job completes, the queued one starts by itself (the turtle drives to its start).
 
+### Minimap waypoints
+
+50. [ ] Right-click the map → **Copy as JourneyMap waypoint** (or **Copy as Xaero's waypoint**, whichever minimap your pack has). In Minecraft, open chat, paste (Ctrl+V) and send: the message should be a clickable waypoint; click it to add it. Same with **JourneyMap** / **Xaero** on a depot card. Report the exact text if the mod doesn't pick it up (the format differs between mod versions).
+
 ### Instances (several worlds or servers)
 
 41. [ ] Log out. The login screen has an **Instance** list; your current world shows there (existing data is in `main` unless you named it otherwise). Choose **＋ New instance…**, name it after the other server or save, and log in: the fleet list is empty and says how many turtles are in other instances.

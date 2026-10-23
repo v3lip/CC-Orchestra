@@ -1,5 +1,11 @@
 # Progress notes
 
+## Minimap waypoints (2026-10-23)
+
+- Right-click the map → **Copy as JourneyMap waypoint** / **Copy as Xaero's waypoint**, and the same on each depot card: chat text that the minimap mod turns into a clickable "add waypoint" link (`[name:"…", x:…, y:…, z:…, dim:…]` for JourneyMap, `xaero-waypoint:name:initials:x:y:z:colour:false:0:Internal-<dimension>-waypoints` for Xaero). Chat rather than the mods' waypoint files, whose format and folders differ between versions. Named after the block (e.g. an ore) or turtle under the cursor.
+- Tests: both formats, per dimension, and names that can't break them. Not yet confirmed in-game: checklist step 50.
+
+
 ## Notifications (2026-10-23)
 
 - Set `NOTIFY_WEBHOOK_URL` (a Discord or Slack webhook) and the backend posts a message when a job completes ("✅ [world] Turtle: "Job" completed: N blocks, M ores. Next in the queue: …"), needs attention (the same reason the job card shows), or pauses because its turtle went offline or stopped answering. An operator's own pause sends nothing.

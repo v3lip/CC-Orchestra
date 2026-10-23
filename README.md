@@ -71,7 +71,7 @@ Have turtles **scan the walls** as they dig, or map everything within 8–16 blo
 
 ### 🎮 Hands-on control
 
-Drive one turtle or a whole selection at once with **W/A/S/D/R/F**, and dig, inspect, refuel or pick slots from the command bar. **Right-click the map** to send a turtle to a spot, start a job right there, or pause, resume or stop a turtle. Every command shows its result for each turtle.
+Drive one turtle or a whole selection at once with **W/A/S/D/R/F**, and dig, inspect, refuel or pick slots from the command bar. **Right-click the map** to send a turtle to a spot, start a job right there, pause, resume or stop a turtle, or copy a JourneyMap / Xaero's Minimap waypoint to paste into Minecraft's chat. Every command shows its result for each turtle.
 
 ### 🌍 One dashboard, many worlds
 
@@ -254,7 +254,7 @@ The repository is an npm workspace: `packages/protocol` (shared message types), 
 4. ✅ Multi-turtle scheduling, groups, depot queues and collision handling
 5. ✅ Branch mine, grid mine, quarry, wall scanning, ore veins, ore search and the persistent map; sharing branch and grid mines between turtles (in the simulator so far)
 6. 🟡 3D view ✅; Geo Scanner mapping ✅ in the simulator, to be confirmed in-game ([plan](docs/milestone-6.md))
-7. ⬜ Minimap waypoints (JourneyMap / Xaero)
+7. 🟡 Job queues ✅, notifications ✅, minimap waypoints (JourneyMap / Xaero, via chat) ✅ in the dashboard, to be confirmed in-game
 
 Everything marked done has been checked in-game with [the verification checklist](docs/in-game-checklist.md), except the newest work (the 3D view, the right-click menu and instances), which is tested in the simulator so far. Day-by-day notes are in [docs/progress.md](docs/progress.md).
 

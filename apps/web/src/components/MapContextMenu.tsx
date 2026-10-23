@@ -3,6 +3,7 @@ import type { Heading, MapBlock, Vec3 } from '@ccfleet/protocol';
 import { api } from '../lib/api';
 import { mapCache, runBatch, useFleet } from '../lib/store';
 import { hasScanner, shortItem, statusOf } from '../lib/status';
+import { journeyMapWaypoint, xaeroWaypoint } from '../lib/waypoints';
 
 type Item = { label: string; hint?: string; danger?: boolean; disabled?: boolean; run?: () => void } | 'sep' | { title: string };
 
@@ -121,6 +122,15 @@ export function MapContextMenu() {
           .then(() => st.toast('info', `Copied ${fmt(where)}`))
           .catch(toastErr),
     });
+    // For the in-game minimap: paste into chat, click it there to add the waypoint.
+    const wpName = known?.block ? shortItem(known.block) : t ? t.name : 'CC Orchestra';
+    const copyWaypoint = (text: string, mod: string) => () =>
+      navigator.clipboard
+        .writeText(text)
+        .then(() => st.toast('info', `Copied a ${mod} waypoint: paste it into Minecraft's chat and click it`))
+        .catch(toastErr);
+    items.push({ label: 'Copy as JourneyMap waypoint', hint: 'paste in chat', run: copyWaypoint(journeyMapWaypoint(wpName, where, dimension), 'JourneyMap') });
+    items.push({ label: "Copy as Xaero's waypoint", hint: 'paste in chat', run: copyWaypoint(xaeroWaypoint(wpName, where, dimension), "Xaero's Minimap") });
     const cx = Math.floor(where.x / 16);
     const cz = Math.floor(where.z / 16);
     const forced = forcedChunks.some((c) => c.world === world && c.dimension === dimension && c.cx === cx && c.cz === cz);

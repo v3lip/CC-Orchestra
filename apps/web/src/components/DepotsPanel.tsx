@@ -1,10 +1,19 @@
 import { useState } from 'react';
 import type { Dir, DepotView, Heading } from '@ccfleet/protocol';
 import { api } from '../lib/api';
+import { journeyMapWaypoint, xaeroWaypoint } from '../lib/waypoints';
 import { useFleet } from '../lib/store';
 import { HEADING_SHORT } from '../lib/status';
 
 const DIR_LABEL: Record<Dir, string> = { front: 'in front', up: 'above', down: 'below' };
+
+/** Waypoint text to the clipboard, for pasting into Minecraft's chat. */
+function copyWaypoint(text: string) {
+  navigator.clipboard.writeText(text).then(
+    () => useFleet.getState().toast('info', "Copied a waypoint: paste it into Minecraft's chat and click it"),
+    (e) => useFleet.getState().toast('error', (e as Error).message),
+  );
+}
 
 export function DepotsPanel() {
   const depotMap = useFleet((s) => s.depots);
@@ -48,6 +57,12 @@ export function DepotsPanel() {
             </button>
             <button className="text-cyan-300 hover:underline" onClick={() => setEditing(d)}>
               Edit
+            </button>
+            <button className="text-cyan-300 hover:underline" title="Copy a JourneyMap waypoint: paste it into Minecraft's chat and click it" onClick={() => copyWaypoint(journeyMapWaypoint(d.name, d.dock, d.dimension))}>
+              JourneyMap
+            </button>
+            <button className="text-cyan-300 hover:underline" title="Copy a waypoint for Xaero's Minimap: paste it into Minecraft's chat and click it" onClick={() => copyWaypoint(xaeroWaypoint(d.name, d.dock, d.dimension))}>
+              Xaero
             </button>
             <button
               className="text-red-400 hover:underline"
