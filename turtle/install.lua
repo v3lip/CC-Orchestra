@@ -1,4 +1,4 @@
--- CC Fleet installer. The backend fills in BASE when it serves this file.
+-- CC Orchestra installer. The backend fills in BASE when it serves this file.
 --   install <PAIRING-CODE>   first install / re-pair
 --   install                  update the agent files, keep identity and position
 local BASE = "__BASE_URL__"
@@ -33,7 +33,7 @@ local function readFile(path)
   return s
 end
 
-print("CC Fleet installer")
+print("CC Orchestra installer")
 if not turtle then fail("This must run on a turtle.") end
 if not http then fail("The HTTP API is disabled in the server config (http.enabled).") end
 
@@ -58,7 +58,9 @@ if not fs.exists("/fleet") then fs.makeDir("/fleet") end
 
 -- Keep someone else's startup program instead of silently replacing it.
 local existing = readFile("/startup.lua")
-if existing and not existing:find("CC Fleet launcher", 1, true) and not fs.exists("/startup.lua.bak") then
+-- Ours already (named "CC Fleet launcher" before the rename): no backup needed.
+local ours = existing and (existing:find("CC Orchestra launcher", 1, true) or existing:find("CC Fleet launcher", 1, true))
+if existing and not ours and not fs.exists("/startup.lua.bak") then
   fs.move("/startup.lua", "/startup.lua.bak")
   print("Existing startup.lua saved as startup.lua.bak")
 end
@@ -115,6 +117,6 @@ if not poseKnown then
   end
 end
 
-print("Installed CC Fleet agent " .. tostring(manifest.version) .. ".")
+print("Installed CC Orchestra agent " .. tostring(manifest.version) .. ".")
 print("Starting...")
 shell.run("/startup.lua")

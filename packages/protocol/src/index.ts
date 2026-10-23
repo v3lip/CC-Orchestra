@@ -1,5 +1,5 @@
 /**
- * CC Fleet wire protocol, version 1.
+ * CC Orchestra wire protocol, version 1.
  *
  * Shared by the backend, the simulator and (by hand-mirroring, see docs/protocol.md)
  * the Lua turtle agent. Every message is one JSON object per WebSocket text frame:
@@ -521,7 +521,7 @@ export type UiServerMsg =
   | { type: 'forced_chunks'; chunks: ForcedChunk[] }
   | { type: 'instances'; instances: InstanceView[] };
 
-/** One Minecraft world/server ("save") and how much CC Fleet knows about it. */
+/** One Minecraft world/server ("save") and how much CC Orchestra knows about it. */
 export interface InstanceView {
   name: string;
   createdAt?: number;
@@ -731,7 +731,7 @@ export const CampaignInput = z
 export type CampaignInput = z.input<typeof CampaignInput>;
 
 /**
- * A chunk the operator says is kept loaded by something CC Fleet can't see (e.g. FTB
+ * A chunk the operator says is kept loaded by something CC Orchestra can't see (e.g. FTB
  * Chunks force-loading). A Chunk Controller only keeps the turtle's own chunk active:
  * a turtle that steps into a chunk nothing else keeps loaded stops.
  */

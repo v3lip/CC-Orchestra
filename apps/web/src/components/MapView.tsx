@@ -674,7 +674,7 @@ function ChunkToggle() {
         <button
           onClick={() => setMark(!mark)}
           className={`rounded border px-2 py-0.5 ${mark ? 'border-violet-500 bg-violet-900/80 text-violet-100' : 'border-edge bg-black/60 text-dim'}`}
-          title="Click chunks on the map to mark/unmark them as force-loaded (e.g. with FTB Chunks). CC Fleet can't detect that itself."
+          title="Click chunks on the map to mark/unmark them as force-loaded (e.g. with FTB Chunks). CC Orchestra can't detect that itself."
         >
           {mark ? '✓ Click chunks to mark' : 'Mark force-loaded…'}
         </button>

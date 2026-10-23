@@ -247,7 +247,7 @@ describe('restarts and connection loss', () => {
   });
 
   it('backend restart: in-flight commands become unknown and are reconciled from the turtle', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'ccfleet-'));
+    const dir = mkdtempSync(join(tmpdir(), 'ccorchestra-'));
     const dbFile = join(dir, 'fleet.sqlite');
     try {
       server = await startServer({ dbFile });

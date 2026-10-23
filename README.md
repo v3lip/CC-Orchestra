@@ -1,6 +1,6 @@
 <div align="center">
 
-# CC Fleet
+# CC Orchestra
 
 **Mission control for your [CC: Tweaked](https://tweaked.cc/) mining turtles.**
 
@@ -12,7 +12,7 @@ Pair your turtles once, then run them from your browser: a live map of everythin
 ![Self-hosted](https://img.shields.io/badge/self--hosted-no%20cloud-0e7490)
 [![MIT license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-![The CC Fleet dashboard: three turtles sharing a quarry, with ore finds and the ore overlay](docs/screenshots/overview.png)
+![The CC Orchestra dashboard: three turtles sharing a quarry, with ore finds and the ore overlay](docs/screenshots/overview.png)
 
 [Try it without Minecraft](#try-it-in-two-minutes-no-minecraft-needed) · [Connect real turtles](#connect-your-turtles) · [Features](#what-it-does) · [FAQ](#faq)
 
@@ -20,11 +20,11 @@ Pair your turtles once, then run them from your browser: a live map of everythin
 
 ---
 
-## Why CC Fleet?
+## Why CC Orchestra?
 
 Everyone who plays with turtles knows the story: you write a mining script, send the turtle off, walk away… and come back to a turtle stuck behind gravel, out of fuel, lost after its chunk unloaded, or wandering because it forgot where home was.
 
-CC Fleet takes a different approach: **the brain lives on your PC, not on the turtle.** Each turtle runs a small agent that does one checked action at a time. The backend plans the work, tracks every move and keeps the map. So:
+CC Orchestra takes a different approach: **the brain lives on your PC, not on the turtle.** Each turtle runs a small agent that does one checked action at a time. The backend plans the work, tracks every move and keeps the map. So:
 
 - 🔁 **Jobs survive interruptions.** Disconnects, chunk unloads, a server or backend restart: the job pauses safely and carries on from where it stopped when you press Resume.
 - 🧭 **Turtles never guess where they are.** Position comes from calibration or GPS and is tracked move by move. If a move's outcome is unknown, the turtle is marked *uncertain* instead of quietly drifting off course.
@@ -84,7 +84,7 @@ No Minecraft open? The simulator runs turtles in a generated world over the exac
 
 ```mermaid
 flowchart LR
-    B["🖥️ Dashboard<br/>(your browser)"] <-- "HTTP + WebSocket" --> S["⚙️ CC Fleet backend<br/>Node.js · SQLite<br/>plans jobs, keeps the map"]
+    B["🖥️ Dashboard<br/>(your browser)"] <-- "HTTP + WebSocket" --> S["⚙️ CC Orchestra backend<br/>Node.js · SQLite<br/>plans jobs, keeps the map"]
     S <-- "WebSocket" --> T1["🐢 Turtle<br/>Lua agent"]
     S <-- "WebSocket" --> T2["🐢 Turtle<br/>Lua agent"]
     S <-- "WebSocket" --> T3["🐢 Turtle<br/>Lua agent"]
@@ -97,8 +97,8 @@ The backend runs on your own PC or server; nothing goes through a cloud service.
 You need [Node.js](https://nodejs.org/) **22.13 or newer** (24 recommended).
 
 ```bash
-git clone https://github.com/v3lip/CC-Fleet.git
-cd CC-Fleet
+git clone https://github.com/v3lip/CC-Orchestra.git
+cd CC-Orchestra
 npm install
 npm run setup        # creates .env with a random dashboard password (printed once; it's also in .env)
 npm run build        # builds the dashboard
@@ -135,7 +135,7 @@ npm run sim -- --lua --count 3 --data ./sim-data-lua   # run the real Lua agent 
 **1. Let turtles reach the backend.** CC: Tweaked blocks local network addresses by default. In your world's `computercraft-server.toml`, add one narrow allow rule for the backend's address and port, *above* the existing `$private` deny rule:
 
 ```toml
-# CC Fleet backend: only this address and port.
+# CC Orchestra backend: only this address and port.
 [[http.rules]]
     host = "127.0.0.1"
     port = 8787

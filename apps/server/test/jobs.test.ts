@@ -306,7 +306,7 @@ describe('tunnel job (TS agent)', () => {
   });
 
   it('backend restart: running job comes back paused and resumes from its checkpoint', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'ccfleet-jobs-'));
+    const dir = mkdtempSync(join(tmpdir(), 'ccorchestra-jobs-'));
     const dbFile = join(dir, 'fleet.sqlite');
     try {
       server = await startServer({ dbFile });

@@ -1,5 +1,11 @@
 # Progress notes
 
+## Renamed to CC Orchestra (2026-10-23)
+
+- The project is now **CC Orchestra** (repository https://github.com/v3lip/CC-Orchestra): dashboard title and logo, turtle screen and installer messages, docs, README, log prefix, package and Docker service names.
+- Kept on purpose, so existing installs and data keep working: the files on turtles (`/fleet/agent.lua`, `/fleet/state.json`), the database (`data/fleet.sqlite`), the Docker volume (`fleet-data`), browser settings (`ccf.*`) and the internal `@ccfleet/*` package names. The installer recognises launchers installed under the old name, so re-running `install` doesn't back them up as someone else's.
+
+
 ## Torches: steadier in-game (2026-10-22)
 
 - First in-game run (three branch mines plus a 3-wide tunnel, FTB Evolution): 33 torches placed, but 50 attempts failed with "Cannot place block here", one torch fell off later, eMiner1 carried its torches in six slots, and "missed" read 32.
@@ -193,7 +199,7 @@ In-game, a turtle with a Chunk Controller went offline once, exactly as it stepp
 - **Opt-in auto-resume** (job policy): a job paused because its turtle dropped resumes when the turtle reconnects, within 15 min, at most 3× per hour, only with a known pose and no hold, and never after an operator pause.
 - **Disconnect close codes** are now logged, to tell a computer shutdown from a dropped link next time. AP's `enableDebugMode` logs its force-loads.
 
-- **Mark force-loaded chunks** on the map (**▦ Chunks → Mark force-loaded…**, click to toggle). Stored in SQLite (migration 3) and shared live. CC Fleet can't detect FTB Chunks' force-loads itself.
+- **Mark force-loaded chunks** on the map (**▦ Chunks → Mark force-loaded…**, click to toggle). Stored in SQLite (migration 3) and shared live. CC Orchestra can't detect FTB Chunks' force-loads itself.
 - **Chunks a job uses:** the estimate returns the tunnel footprint, the dock, and the chunks on the line between them, with marked/unmarked status. The form outlines unmarked ones (informational, no warning).
 - **Crossing note:** if a job's turtle disconnects right at a chunk border, the pause reason says *went offline as it crossed from chunk A into chunk B*. Routes now include the start cell so "just crossed" is recognised.
 - Docs: why the Controller isn't enough, FTB Chunks setup, and the Esc/alt-tab pause gotcha (F3+P).

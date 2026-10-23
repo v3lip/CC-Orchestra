@@ -1,4 +1,4 @@
--- CC Fleet turtle agent (protocol v1).
+-- CC Orchestra turtle agent (protocol v1).
 -- Target: CC: Tweaked 1.100.2+ on Minecraft 1.16.5. Lua 5.1 syntax only.
 --
 -- The agent executes only whitelisted atomic operations sent by the backend.
@@ -81,7 +81,7 @@ end
 
 local config = decode(readFile(CONFIG_FILE))
 if not config or type(config.ws) ~= "string" then
-  error("CC Fleet is not installed (missing " .. CONFIG_FILE .. "). Run the installer.", 0)
+  error("CC Orchestra is not installed (missing " .. CONFIG_FILE .. "). Run the installer.", 0)
 end
 
 local unknownPose = { position = "unknown", headingConfidence = "unknown", source = "none" }
@@ -912,7 +912,7 @@ local function screenLoop()
     local w = term.getSize()
     local p = mem.pose
     term.clear()
-    line(1, ("CC Fleet " .. AGENT_VERSION):sub(1, w))
+    line(1, ("CC Orchestra " .. AGENT_VERSION):sub(1, w))
     line(2, ("Name: " .. tostring(serverName or os.getComputerLabel() or "?")):sub(1, w))
     line(3, ("Link: " .. connState):sub(1, w))
     local pos = p.pos and (p.pos.x .. " " .. p.pos.y .. " " .. p.pos.z) or "unknown"

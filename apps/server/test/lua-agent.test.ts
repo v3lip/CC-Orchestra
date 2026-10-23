@@ -75,11 +75,15 @@ describe('Lua agent: install, pairing, telemetry', () => {
     const { server, world } = await setup();
     const t = await spawn(server, world, { x: 0, y: 100, z: 0 });
     const id = t.turtleId;
+    // Installed before the project was renamed: still our launcher, so no backup.
+    t.files.set('startup.lua', '-- CC Fleet launcher (installed as /startup.lua). Restarts the agent if it crashes.\n');
     t.files.set('install.lua', await (await fetch(`${server.baseUrl}/turtle/install.lua`)).text());
     await t.boot('install.lua', []);
     await waitFor(() => server.fleet.getTurtle(id)?.connection === 'online' && t.status === 'running', 5000);
     expect(server.fleet.listTurtles()).toHaveLength(1);
     expect(t.state.creds.turtleId).toBe(id);
+    await waitFor(() => t.files.get('startup.lua')?.includes('CC Orchestra launcher'), 5000, 'the new launcher');
+    expect(t.files.has('startup.lua.bak')).toBe(false);
   });
 });
 

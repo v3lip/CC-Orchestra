@@ -1,5 +1,5 @@
 services:
-  cc-fleet:
+  cc-orchestra:
     build: .
     restart: unless-stopped
     environment:

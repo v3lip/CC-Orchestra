@@ -23,7 +23,7 @@ Your world config currently has:
 That blocks `127.0.0.1` and every LAN address, so turtles **cannot** connect to a backend on your PC. Do not delete this rule. Instead, add one narrow allow rule **above** it, for exactly the backend's address and port. Port-specific rules exist since CC: Tweaked 1.93.0.
 
 ```toml
-# CC Fleet backend: only this address and port.
+# CC Orchestra backend: only this address and port.
 [[http.rules]]
     host = "127.0.0.1"
     port = 8787
@@ -95,7 +95,7 @@ Turtles are not chunk loaders. If no player is near a turtle, its chunk unloads 
 Options in your pack:
 
 - **Chunky turtles (recommended for jobs):** an Advanced Peripherals **Chunk Controller** on one side of the turtle (the other side keeps the pickaxe). Craft it into a turtle, or equip it on a free side. Details below.
-- **FTB Chunks** (installed): claim and force-load the mining area's chunks. This is per-team; check the force-load limits in its config. CC Fleet can't see these.
+- **FTB Chunks** (installed): claim and force-load the mining area's chunks. This is per-team; check the force-load limits in its config. CC Orchestra can't see these.
   - **Claims keep turtles out.** A turtle counts as a *fake player*, and with FTB Chunks' defaults it can't enter or work in a claimed chunk: moves fail with CC's vague **`Movement failed`** (not "obstructed"), and a job pauses there. The dashboard now says so next to that error. Fix it in-game: open the FTB Chunks map → team settings and allow **fake players** for your team (claimed chunks stay protected from other players), or don't claim chunks the turtles work in. On a private world you can instead set `disable_protection: true` in `ftbchunks-world.snbt`, keeping claims for force-loading only.
 - **Stay nearby.**
 
@@ -113,11 +113,11 @@ Checked against the installed jar and your config, not just the wiki:
 
 **Pausing:** in single-player, the Esc menu pauses the whole world, and so does alt-tabbing unless you turn off pause-on-lost-focus (**F3+P**). After 30 s the turtles count as offline and their jobs pause.
 
-**What it can't do:** in **single-player**, the world only runs while you have it open. Leaving the world or closing Minecraft stops every turtle, chunky or not, and they resume (agent restarts via `startup.lua`) when you load the world again. The chunky turtle lets you go somewhere else in the same world (another base, the Nether…) while turtles keep mining. To mine while you are not playing at all, run the world on a **dedicated server** (the FTB pack has server files) and keep the CC Fleet backend running.
+**What it can't do:** in **single-player**, the world only runs while you have it open. Leaving the world or closing Minecraft stops every turtle, chunky or not, and they resume (agent restarts via `startup.lua`) when you load the world again. The chunky turtle lets you go somewhere else in the same world (another base, the Nether…) while turtles keep mining. To mine while you are not playing at all, run the world on a **dedicated server** (the FTB pack has server files) and keep the CC Orchestra backend running.
 
 **Updated agent needed:** run `install` on the turtle (agent `lua-0.3.1`) so it reports its upgrades. Older agents work as before but show no chunk info.
 
-Nothing in CC Fleet assumes chunks stay loaded. A turtle whose chunk unloads is shown stale/offline, and its last position is still treated as occupied.
+Nothing in CC Orchestra assumes chunks stay loaded. A turtle whose chunk unloads is shown stale/offline, and its last position is still treated as occupied.
 
 ## 5. Optional: GPS
 
